@@ -31,6 +31,13 @@ class TaskManager:
             description,
             priority,
         )
+        for existing_task in self.list_pending_tasks():
+            if (
+                existing_task.title == normalized_title
+                and existing_task.description == normalized_description
+                and existing_task.priority == normalized_priority
+            ):
+                raise ValidationError("This task is already in your pending list.")
         task_id = storage.insert_task(normalized_title, normalized_description, normalized_priority)
         logger.info("Added task with id %s", task_id)
         return Task(

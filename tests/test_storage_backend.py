@@ -1,5 +1,8 @@
+import sqlite3
 from datetime import datetime
 
+import app.backend as backend_module
+from app.sqlite_storage import SQLiteStorage
 from app.backend import MoneyManager, TaskManager
 from app.errors import RecordNotFoundError, ValidationError
 from tests.test_support import IsolatedDatabaseTestCase
@@ -11,7 +14,32 @@ class SQLiteStorageTests(IsolatedDatabaseTestCase):
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         ).fetchall()
 
-        self.assertEqual([row["name"] for row in rows], ["money_entries", "tasks"])
+        self.assertEqual(
+            [row["name"] for row in rows],
+            [
+                "money_counterparties",
+                "money_entries",
+                "money_entry_facts",
+                "money_entry_kinds",
+                "task_active",
+                "task_completed",
+                "task_core",
+                "task_events",
+            ],
+        )
+
+        view_rows = self.storage.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name"
+        ).fetchall()
+        self.assertEqual(
+            [row["name"] for row in view_rows],
+            [
+                "money_analysis_view",
+                "money_monthly_breakdown_view",
+                "task_analysis_view",
+                "task_daily_stats_view",
+            ],
+        )
 
     def test_task_round_trip_and_completion(self):
         task_id = self.storage.insert_task("Pay rent", "Before 5pm", "High")
@@ -32,6 +60,101 @@ class SQLiteStorageTests(IsolatedDatabaseTestCase):
         self.assertEqual(len(completed_tasks), 1)
         self.assertTrue(completed_tasks[0].done)
         self.assertIsNotNone(completed_tasks[0].completed_at)
+
+        active_row = self.storage.conn.execute(
+            "SELECT 1 FROM task_active WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        self.assertIsNone(active_row)
+
+        completed_row = self.storage.conn.execute(
+            "SELECT priority, completed_at FROM task_completed WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        self.assertEqual(completed_row["priority"], "High")
+        self.assertIsNotNone(completed_row["completed_at"])
+
+    def test_task_analysis_tables_store_lifecycle_data(self):
+        task_id = self.storage.insert_task("Pay rent", "Before 5pm", "High")
+
+        analysis_row = self.storage.conn.execute(
+            """
+            SELECT lifecycle_stage, priority, title_clean, description_clean
+            FROM task_analysis_view
+            WHERE task_id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        self.assertEqual(analysis_row["lifecycle_stage"], "active")
+        self.assertEqual(analysis_row["priority"], "High")
+        self.assertEqual(analysis_row["title_clean"], "Pay rent")
+        self.assertEqual(analysis_row["description_clean"], "Before 5pm")
+
+        event_rows = self.storage.conn.execute(
+            "SELECT event_type, to_state FROM task_events WHERE task_id = ? ORDER BY id",
+            (task_id,),
+        ).fetchall()
+        self.assertEqual(
+            [(row["event_type"], row["to_state"]) for row in event_rows],
+            [("created", "pending")],
+        )
+
+    def test_legacy_tasks_table_is_migrated_into_lifecycle_tables(self):
+        self.storage.conn.close()
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            """
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+                description TEXT NOT NULL DEFAULT '',
+                date TEXT NOT NULL,
+                priority TEXT NOT NULL DEFAULT 'Medium'
+                    CHECK (priority IN ('Low', 'Medium', 'High')),
+                done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
+                completed_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO tasks (id, title, description, date, priority, done, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (1, "Deep work", "Focus block", "2026-04-08T09:00:00", "High", 0, None),
+        )
+        conn.execute(
+            """
+            INSERT INTO tasks (id, title, description, date, priority, done, completed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (2, "Pay rent", "Before 5pm", "2026-04-07T18:00:00", "Medium", 1, "2026-04-08T07:30:00"),
+        )
+        conn.commit()
+        conn.close()
+
+        self.storage = SQLiteStorage()
+        backend_module.storage = self.storage
+
+        pending_tasks = self.storage.get_tasks(done=0)
+        completed_tasks = self.storage.get_tasks(done=1)
+
+        self.assertEqual([task.title for task in pending_tasks], ["Deep work"])
+        self.assertEqual([task.title for task in completed_tasks], ["Pay rent"])
+
+        legacy_tables = self.storage.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tasks_legacy'"
+        ).fetchall()
+        self.assertEqual(len(legacy_tables), 1)
+
+        migrated_events = self.storage.conn.execute(
+            "SELECT event_type FROM task_events WHERE task_id = 2 ORDER BY id"
+        ).fetchall()
+        self.assertEqual(
+            [row["event_type"] for row in migrated_events],
+            ["created", "completed"],
+        )
 
     def test_task_validation_rejects_blank_title_and_unknown_task(self):
         with self.assertRaisesRegex(ValidationError, "Task title cannot be empty"):
@@ -84,6 +207,87 @@ class SQLiteStorageTests(IsolatedDatabaseTestCase):
 
         self.storage.delete_money_entry(expense_id)
         self.assertEqual(self.storage.get_money_entries(year=2026, month=4), [])
+
+    def test_money_analysis_tables_store_ai_friendly_money_facts(self):
+        entry_id = self.storage.insert_money_entry("Given", 1800, "Loan to Sam", "Sam")
+
+        fact_row = self.storage.conn.execute(
+            """
+            SELECT
+                kind_key,
+                flow_direction,
+                analysis_group,
+                amount_minor,
+                signed_amount_minor,
+                currency_code,
+                counterparty_name,
+                counterparty_kind,
+                month_key
+            FROM money_entry_facts
+            WHERE entry_id = ?
+            """,
+            (entry_id,),
+        ).fetchone()
+
+        self.assertEqual(fact_row["kind_key"], "Given")
+        self.assertEqual(fact_row["flow_direction"], "outflow")
+        self.assertEqual(fact_row["analysis_group"], "loan")
+        self.assertEqual(fact_row["amount_minor"], 180000)
+        self.assertEqual(fact_row["signed_amount_minor"], -180000)
+        self.assertEqual(fact_row["currency_code"], "INR")
+        self.assertEqual(fact_row["counterparty_name"], "Sam")
+        self.assertEqual(fact_row["counterparty_kind"], "person")
+        self.assertRegex(fact_row["month_key"], r"^\d{4}-\d{2}$")
+
+        analysis_row = self.storage.conn.execute(
+            """
+            SELECT counts_as_receivable, counts_as_expense, counts_as_income
+            FROM money_analysis_view
+            WHERE entry_id = ?
+            """,
+            (entry_id,),
+        ).fetchone()
+        self.assertEqual(analysis_row["counts_as_receivable"], 1)
+        self.assertEqual(analysis_row["counts_as_expense"], 0)
+        self.assertEqual(analysis_row["counts_as_income"], 0)
+
+    def test_money_analysis_rows_stay_synced_when_money_entries_change(self):
+        entry_id = self.storage.insert_money_entry("Expense", 1200, "Groceries", "")
+        self.storage.conn.execute(
+            """
+            UPDATE money_entries
+            SET entry_type = ?, amount = ?, note = ?, person = ?, date = ?
+            WHERE id = ?
+            """,
+            ("Taken", 900, "Borrowed from Lee", "Lee", datetime(2026, 3, 18, 18, 0, 0).isoformat(timespec="seconds"), entry_id),
+        )
+        self.storage.conn.commit()
+
+        fact_row = self.storage.conn.execute(
+            """
+            SELECT
+                kind_key,
+                flow_direction,
+                analysis_group,
+                amount_minor,
+                signed_amount_minor,
+                counterparty_name,
+                counterparty_kind,
+                month_key
+            FROM money_entry_facts
+            WHERE entry_id = ?
+            """,
+            (entry_id,),
+        ).fetchone()
+
+        self.assertEqual(fact_row["kind_key"], "Taken")
+        self.assertEqual(fact_row["flow_direction"], "inflow")
+        self.assertEqual(fact_row["analysis_group"], "loan")
+        self.assertEqual(fact_row["amount_minor"], 90000)
+        self.assertEqual(fact_row["signed_amount_minor"], 90000)
+        self.assertEqual(fact_row["counterparty_name"], "Lee")
+        self.assertEqual(fact_row["counterparty_kind"], "person")
+        self.assertEqual(fact_row["month_key"], "2026-03")
 
     def test_money_entry_validation_rejects_bad_payloads(self):
         with self.assertRaisesRegex(ValidationError, "Amount must be greater than zero"):
@@ -147,6 +351,26 @@ class ManagerTests(IsolatedDatabaseTestCase):
 
         with self.assertRaisesRegex(ValidationError, "Task priority must be Low, Medium, or High"):
             manager.add_task("Finish report", "Share draft", "Urgent")
+
+    def test_task_manager_rejects_duplicate_pending_task(self):
+        manager = TaskManager()
+        manager.add_task("Finish report", "Share draft", "Medium")
+
+        with self.assertRaisesRegex(ValidationError, "already in your pending list"):
+            manager.add_task("Finish report", "Share draft", "Medium")
+
+        self.assertEqual(len(manager.list_pending_tasks()), 1)
+
+    def test_task_manager_allows_readding_completed_task(self):
+        manager = TaskManager()
+        task = manager.add_task("Finish report", "Share draft", "Medium")
+        manager.mark_done(task.id)
+
+        recreated_task = manager.add_task("Finish report", "Share draft", "Medium")
+
+        self.assertEqual(recreated_task.title, "Finish report")
+        self.assertEqual(len(manager.list_pending_tasks()), 1)
+        self.assertEqual(len(manager.list_completed_tasks()), 1)
 
     def test_money_manager_returns_expected_summary_dict(self):
         manager = MoneyManager()

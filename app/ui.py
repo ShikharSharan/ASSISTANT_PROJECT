@@ -164,6 +164,11 @@ QLabel#entryMeta {
     color: #b16a22;
     font-size: 11px;
 }
+QLabel#fieldLabel {
+    color: #8a3600;
+    font-size: 12px;
+    font-weight: 600;
+}
 QPushButton {
     min-height: 36px;
     padding: 0 14px;
@@ -277,16 +282,19 @@ QLineEdit#chatInput {
 QListWidget {
     outline: 0;
 }
-QListWidget::item {
-    margin: 3px 6px;
-    padding: 10px 12px;
+QListWidget#cardList {
+    padding: 2px 0;
+}
+QListWidget#cardList::item {
+    margin: 0;
+    padding: 0;
     border-radius: 10px;
     color: #5a2800;
 }
-QListWidget::item:hover {
+QListWidget#cardList::item:hover {
     background-color: #fff1d8;
 }
-QListWidget::item:selected {
+QListWidget#cardList::item:selected {
     background-color: #ffe0b3;
     color: #6b2a00;
 }
@@ -473,6 +481,18 @@ def priority_rank(priority: str) -> int:
     }.get(priority, 3)
 
 
+def pick_focus_task(pending_tasks):
+    if not pending_tasks:
+        return None
+    return min(
+        pending_tasks,
+        key=lambda task: (
+            priority_rank(task.priority),
+            task.date or datetime.max,
+        ),
+    )
+
+
 def format_task_preview(description: str) -> str:
     if not description:
         return "No extra notes yet. Open the task to add context."
@@ -521,6 +541,23 @@ def repolish(widget: QWidget) -> None:
     style.unpolish(widget)
     style.polish(widget)
     widget.update()
+
+
+def list_card_size_hint(card: QWidget, minimum_height: int) -> QSize:
+    return QSize(0, max(minimum_height, card.sizeHint().height()))
+
+
+def create_field_stack(label_text: str, field: QWidget) -> QVBoxLayout:
+    field_layout = QVBoxLayout()
+    field_layout.setContentsMargins(0, 0, 0, 0)
+    field_layout.setSpacing(6)
+
+    label = QLabel(label_text)
+    label.setObjectName("fieldLabel")
+    field_layout.addWidget(label)
+    field_layout.addWidget(field)
+
+    return field_layout
 
 
 class TaskListCard(QFrame):
@@ -930,9 +967,6 @@ class HomePage(InfinityPage):
         super().__init__()
         self.main_window = main_window
         self.task_manager = task_manager
-        self.active_filter = "All"
-        self.filter_buttons = {}
-        self.task_rows = {}
         self.current_focus_task_id = None
 
         layout = create_page_layout(self)
@@ -1024,6 +1058,217 @@ class HomePage(InfinityPage):
         focus_layout.addLayout(focus_actions)
         layout.addWidget(self.focus_card)
 
+        layout.addWidget(create_section_title("TASK SPACE"))
+        self.task_space_card = QFrame()
+        self.task_space_card.setObjectName("insightCard")
+        task_space_layout = QVBoxLayout()
+        task_space_layout.setContentsMargins(16, 14, 16, 14)
+        task_space_layout.setSpacing(6)
+        self.task_space_card.setLayout(task_space_layout)
+
+        self.task_space_title_label = QLabel("")
+        self.task_space_title_label.setObjectName("insightHeading")
+        task_space_layout.addWidget(self.task_space_title_label)
+
+        self.task_space_meta_label = QLabel("")
+        self.task_space_meta_label.setObjectName("taskMeta")
+        task_space_layout.addWidget(self.task_space_meta_label)
+
+        self.task_space_body_label = QLabel("")
+        self.task_space_body_label.setObjectName("insightText")
+        self.task_space_body_label.setWordWrap(True)
+        task_space_layout.addWidget(self.task_space_body_label)
+        layout.addWidget(self.task_space_card)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        self.open_tasks_btn = QPushButton("Open tasks")
+        self.open_tasks_btn.setObjectName("primaryButton")
+        self.open_tasks_btn.clicked.connect(self.go_to_tasks)
+        btn_row.addWidget(self.open_tasks_btn)
+
+        self.add_task_btn = QPushButton("Add task")
+        self.add_task_btn.setObjectName("secondaryButton")
+        self.add_task_btn.clicked.connect(self.go_to_add_task)
+        btn_row.addWidget(self.add_task_btn)
+
+        self.money_btn = QPushButton("Money")
+        self.money_btn.setObjectName("ghostButton")
+        self.money_btn.clicked.connect(self.go_to_money)
+        btn_row.addWidget(self.money_btn)
+
+        layout.addLayout(btn_row)
+        layout.addStretch(1)
+
+        self.refresh_lists()
+        self.refresh_suggestion()
+
+    def refresh_lists(self):
+        pending = self.task_manager.list_pending_tasks()
+        completed = self.task_manager.list_completed_tasks()
+        today = datetime.now().date()
+        completed_today = sum(
+            1
+            for task in completed
+            if task.completed_at is not None and task.completed_at.date() == today
+        )
+        high_priority = sum(1 for task in pending if task.priority == "High")
+
+        self.stat_values["pending"].setText(str(len(pending)))
+        self.stat_values["done_today"].setText(str(completed_today))
+        self.stat_values["high_priority"].setText(str(high_priority))
+        self.stat_values["focus_hours"].setText(f"~{len(pending)}h")
+        self.subtitle_label.setText(
+            f"{get_greeting_text(datetime.now())}. {len(pending)} task"
+            f"{'' if len(pending) == 1 else 's'} are active right now."
+        )
+
+        self.refresh_focus_card(pending)
+        self.refresh_task_space(pending)
+
+    def refresh_suggestion(self):
+        suggestion = get_daily_suggestion(self.task_manager)
+        if self.task_manager.list_pending_tasks():
+            self.ai_heading_label.setText("Best next step")
+        else:
+            self.ai_heading_label.setText("Calm window")
+        self.ai_text.setText(suggestion)
+
+    def go_to_add_task(self):
+        self.main_window.show_add_task_page(return_page=self)
+
+    def go_to_tasks(self):
+        self.main_window.show_tasks_page()
+
+    def go_to_money(self):
+        self.main_window.show_money_page()
+
+    def go_to_ai_chat(self):
+        self.main_window.show_ai_chat_page()
+
+    def refresh_focus_card(self, pending_tasks):
+        focus_task = pick_focus_task(pending_tasks)
+
+        if focus_task is None:
+            self.current_focus_task_id = None
+            self.focus_title_label.setText("Nothing urgent right now")
+            self.focus_meta_label.setText("Clear board")
+            self.focus_body_label.setText(
+                "Use this quiet window to plan the week, review money, or add one small next step."
+            )
+            self.focus_open_btn.setText("Add task")
+            self.focus_done_btn.setEnabled(False)
+            return
+
+        self.current_focus_task_id = focus_task.id
+        self.focus_title_label.setText(focus_task.title)
+        self.focus_meta_label.setText(
+            f"{focus_task.priority} priority | Created {format_task_timestamp(focus_task.date)}"
+        )
+        self.focus_body_label.setText(format_task_preview(focus_task.description))
+        self.focus_open_btn.setText("Open focus")
+        self.focus_done_btn.setEnabled(True)
+
+    def refresh_task_space(self, pending_tasks):
+        focus_task = pick_focus_task(pending_tasks)
+        high_priority = sum(1 for task in pending_tasks if task.priority == "High")
+
+        if focus_task is None:
+            self.task_space_title_label.setText("Your task board is clear")
+            self.task_space_meta_label.setText("0 pending tasks")
+            self.task_space_body_label.setText(
+                "Home stays light now. Use the Tasks page any time you want the full board, filters, and action buttons."
+            )
+            return
+
+        follow_up_count = max(0, len(pending_tasks) - 1)
+        follow_up_text = "no other tasks waiting" if follow_up_count == 0 else f"{follow_up_count} more waiting"
+        self.task_space_title_label.setText(f"{len(pending_tasks)} pending tasks ready")
+        self.task_space_meta_label.setText(
+            f"{high_priority} high priority | Focus task: {focus_task.title}"
+        )
+        self.task_space_body_label.setText(
+            f"Your full queue has moved to the Tasks page so it is easier to filter and handle. Right now there are {follow_up_text} behind your current focus."
+        )
+
+    def open_focus_task(self):
+        if self.current_focus_task_id is None:
+            self.go_to_add_task()
+            return
+        task = next(
+            (pending_task for pending_task in self.task_manager.list_pending_tasks() if pending_task.id == self.current_focus_task_id),
+            None,
+        )
+        if task is None:
+            QMessageBox.warning(
+                self,
+                "Task not found",
+                "That focus task is no longer available in the pending list.",
+            )
+            self.main_window.refresh_task_views()
+            return
+        self.main_window.show_task_details_page(task, return_page=self)
+
+    def complete_focus_task(self):
+        if self.current_focus_task_id is None:
+            return
+        self.mark_task_done_from_home(self.current_focus_task_id)
+
+    def mark_task_done_from_home(self, task_id: int):
+        try:
+            self.task_manager.mark_done(task_id)
+        except AssistantDataError as exc:
+            QMessageBox.warning(self, "Unable to update task", str(exc))
+            self.main_window.refresh_task_views()
+            return
+        self.main_window.refresh_task_views()
+
+
+class TasksPage(InfinityPage):
+    def __init__(self, main_window, task_manager: TaskManager):
+        super().__init__()
+        self.main_window = main_window
+        self.task_manager = task_manager
+        self.active_filter = "All"
+        self.filter_buttons = {}
+        self.task_rows = {}
+
+        layout = create_page_layout(self)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        self.header_label = QLabel("Tasks")
+        self.header_label.setObjectName("pageTitle")
+        header_row.addWidget(self.header_label)
+        header_row.addStretch(1)
+
+        self.home_btn = QPushButton("Home")
+        self.home_btn.setObjectName("compactButton")
+        self.home_btn.clicked.connect(self.go_home)
+        header_row.addWidget(self.home_btn)
+
+        self.money_btn = QPushButton("Money")
+        self.money_btn.setObjectName("compactButton")
+        self.money_btn.clicked.connect(self.go_to_money)
+        header_row.addWidget(self.money_btn)
+        layout.addLayout(header_row)
+
+        self.subtitle_label = QLabel("")
+        self.subtitle_label.setObjectName("pageSubtitle")
+        self.subtitle_label.setWordWrap(True)
+        layout.addWidget(self.subtitle_label)
+
+        tasks_stats, self.stat_values = create_stats_grid(
+            [
+                ("pending", "PENDING TASKS", "pending"),
+                ("done_today", "DONE TODAY", "done"),
+                ("high_priority", "HIGH PRIORITY", "alert"),
+                ("focus_hours", "FOCUS HOURS", "focus"),
+            ],
+            columns=4,
+        )
+        layout.addLayout(tasks_stats)
+
         tasks_header = QHBoxLayout()
         tasks_header.addWidget(create_section_title("PENDING TASKS"))
         tasks_header.addStretch(1)
@@ -1045,8 +1290,9 @@ class HomePage(InfinityPage):
         layout.addLayout(filter_row)
 
         self.pending_list = QListWidget()
+        self.pending_list.setObjectName("cardList")
         self.pending_list.setSpacing(4)
-        self.pending_list.setMinimumHeight(170)
+        self.pending_list.setMinimumHeight(260)
         self.pending_list.itemSelectionChanged.connect(self.sync_task_card_selection)
         layout.addWidget(self.pending_list)
 
@@ -1084,16 +1330,10 @@ class HomePage(InfinityPage):
         self.view_task_btn.clicked.connect(self.view_selected_task)
         btn_row.addWidget(self.view_task_btn)
 
-        self.money_btn = QPushButton("Money")
-        self.money_btn.setObjectName("ghostButton")
-        self.money_btn.clicked.connect(self.go_to_money)
-        btn_row.addWidget(self.money_btn)
-
         layout.addLayout(btn_row)
         layout.addStretch(1)
 
         self.refresh_lists()
-        self.refresh_suggestion()
 
     def refresh_lists(self):
         pending = self.task_manager.list_pending_tasks()
@@ -1118,29 +1358,18 @@ class HomePage(InfinityPage):
         self.stat_values["high_priority"].setText(str(high_priority))
         self.stat_values["focus_hours"].setText(f"~{len(pending)}h")
         self.subtitle_label.setText(
-            f"{get_greeting_text(datetime.now())}. {len(pending)} task"
-            f"{'' if len(pending) == 1 else 's'} are active right now."
+            "This page is your full task board. Filter the queue, open details, and mark work done without crowding home."
         )
-
-        self.refresh_focus_card(pending)
         self.render_pending_tasks(filtered_pending, pending, selected_task_id)
 
-    def refresh_suggestion(self):
-        suggestion = get_daily_suggestion(self.task_manager)
-        if self.task_manager.list_pending_tasks():
-            self.ai_heading_label.setText("Best next step")
-        else:
-            self.ai_heading_label.setText("Calm window")
-        self.ai_text.setText(suggestion)
+    def go_home(self):
+        self.main_window.show_home_page()
 
     def go_to_add_task(self):
-        self.main_window.show_add_task_page()
+        self.main_window.show_add_task_page(return_page=self)
 
     def go_to_money(self):
         self.main_window.show_money_page()
-
-    def go_to_ai_chat(self):
-        self.main_window.show_ai_chat_page()
 
     def set_active_filter(self, filter_name: str):
         self.active_filter = filter_name
@@ -1155,45 +1384,6 @@ class HomePage(InfinityPage):
             task for task in pending_tasks
             if task.priority == self.active_filter
         ]
-
-    def refresh_focus_card(self, pending_tasks):
-        if not pending_tasks:
-            self.current_focus_task_id = None
-            self.focus_title_label.setText("Nothing urgent right now")
-            self.focus_meta_label.setText("Clear board")
-            self.focus_body_label.setText(
-                "Use this quiet window to plan the week, review money, or add one small next step."
-            )
-            self.focus_open_btn.setText("Add task")
-            self.focus_done_btn.setEnabled(False)
-            return
-
-        focus_task = min(
-            pending_tasks,
-            key=lambda task: (
-                priority_rank(task.priority),
-                task.date or datetime.max,
-            ),
-        )
-        self.current_focus_task_id = focus_task.id
-        self.focus_title_label.setText(focus_task.title)
-        self.focus_meta_label.setText(
-            f"{focus_task.priority} priority | Created {format_task_timestamp(focus_task.date)}"
-        )
-        self.focus_body_label.setText(format_task_preview(focus_task.description))
-        self.focus_open_btn.setText("Open focus")
-        self.focus_done_btn.setEnabled(True)
-
-    def open_focus_task(self):
-        if self.current_focus_task_id is None:
-            self.go_to_add_task()
-            return
-        self.open_task_by_id(self.current_focus_task_id)
-
-    def complete_focus_task(self):
-        if self.current_focus_task_id is None:
-            return
-        self.mark_task_done_from_home(self.current_focus_task_id)
 
     def render_pending_tasks(self, tasks, all_pending_tasks, selected_task_id):
         self.pending_list.clear()
@@ -1226,16 +1416,16 @@ class HomePage(InfinityPage):
         for task in tasks:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, task.id)
-            item.setSizeHint(QSize(0, 96))
             self.pending_list.addItem(item)
 
             task_card = TaskListCard(
                 task=task,
                 select_callback=lambda list_item=item: self.pending_list.setCurrentItem(list_item),
                 open_callback=self.open_task_by_id,
-                done_callback=self.mark_task_done_from_home,
+                done_callback=self.mark_task_done_from_tasks,
             )
             self.pending_list.setItemWidget(item, task_card)
+            item.setSizeHint(list_card_size_hint(task_card, 96))
             self.task_rows[task.id] = task_card
 
         if selected_task_id is not None:
@@ -1284,20 +1474,18 @@ class HomePage(InfinityPage):
                 "Task not found",
                 "That task is no longer available in the pending list.",
             )
-            self.refresh_lists()
+            self.main_window.refresh_task_views()
             return
-        self.main_window.show_task_details_page(task)
+        self.main_window.show_task_details_page(task, return_page=self)
 
-    def mark_task_done_from_home(self, task_id: int):
+    def mark_task_done_from_tasks(self, task_id: int):
         try:
             self.task_manager.mark_done(task_id)
         except AssistantDataError as exc:
             QMessageBox.warning(self, "Unable to update task", str(exc))
-            self.refresh_lists()
-            self.refresh_suggestion()
+            self.main_window.refresh_task_views()
             return
-        self.refresh_lists()
-        self.refresh_suggestion()
+        self.main_window.refresh_task_views()
 
     def view_selected_task(self, _item=None):
         current_item = self.pending_list.currentItem()
@@ -1345,45 +1533,49 @@ class AddTaskPage(InfinityPage):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        save_btn = QPushButton("Save task")
-        save_btn.setObjectName("primaryButton")
-        save_btn.clicked.connect(self.save_task)
+        self.save_btn = QPushButton("Save task")
+        self.save_btn.setObjectName("primaryButton")
+        self.save_btn.clicked.connect(self.save_task)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setObjectName("ghostButton")
         cancel_btn.clicked.connect(self.cancel)
-        btn_row.addWidget(save_btn)
+        btn_row.addWidget(self.save_btn)
         btn_row.addWidget(cancel_btn)
 
         layout.addLayout(btn_row)
         layout.addStretch(1)
 
     def save_task(self):
+        if not self.save_btn.isEnabled():
+            return
+        self.save_btn.setEnabled(False)
         title = self.title_edit.text().strip()
-        if not title:
-            QMessageBox.information(
-                self,
-                "Task title required",
-                "Add a task title before saving.",
-            )
-            return
-        description = self.details_edit.toPlainText().strip()
-        priority = self.priority_combo.currentText()
         try:
-            self.task_manager.add_task(title=title, description=description, priority=priority)
-        except AssistantDataError as exc:
-            QMessageBox.warning(self, "Unable to save task", str(exc))
-            return
-        # clear form
-        self.title_edit.clear()
-        self.details_edit.clear()
-        self.priority_combo.setCurrentText("Medium")
-        # refresh home page and go back
-        self.main_window.home_page.refresh_lists()
-        self.main_window.home_page.refresh_suggestion()
-        self.main_window.show_home_page()
+            if not title:
+                QMessageBox.information(
+                    self,
+                    "Task title required",
+                    "Add a task title before saving.",
+                )
+                return
+            description = self.details_edit.toPlainText().strip()
+            priority = self.priority_combo.currentText()
+            try:
+                self.task_manager.add_task(title=title, description=description, priority=priority)
+            except AssistantDataError as exc:
+                QMessageBox.warning(self, "Unable to save task", str(exc))
+                return
+            # clear form
+            self.title_edit.clear()
+            self.details_edit.clear()
+            self.priority_combo.setCurrentText("Medium")
+            self.main_window.refresh_task_views()
+            self.main_window.return_from_add_task_page()
+        finally:
+            self.save_btn.setEnabled(True)
 
     def cancel(self):
-        self.main_window.show_home_page()
+        self.main_window.return_from_add_task_page()
 
 class TaskDetailsPage(InfinityPage):
     def __init__(self, main_window, task_manager: TaskManager):
@@ -1435,10 +1627,10 @@ class TaskDetailsPage(InfinityPage):
         self.mark_done_btn.clicked.connect(self.mark_task_done)
         btn_row.addWidget(self.mark_done_btn)
 
-        back_btn = QPushButton("Back to Home")
-        back_btn.setObjectName("ghostButton")
-        back_btn.clicked.connect(self.go_back_home)
-        btn_row.addWidget(back_btn)
+        self.back_btn = QPushButton("Back")
+        self.back_btn.setObjectName("ghostButton")
+        self.back_btn.clicked.connect(self.go_back_home)
+        btn_row.addWidget(self.back_btn)
 
         layout.addLayout(btn_row)
         layout.addStretch(1)
@@ -1461,16 +1653,14 @@ class TaskDetailsPage(InfinityPage):
             self.task_manager.mark_done(self.current_task.id)
         except AssistantDataError as exc:
             QMessageBox.warning(self, "Unable to update task", str(exc))
-            self.main_window.home_page.refresh_lists()
-            self.main_window.home_page.refresh_suggestion()
+            self.main_window.refresh_task_views()
             return
         self.current_task.done = True
-        self.main_window.home_page.refresh_lists()
-        self.main_window.home_page.refresh_suggestion()
-        self.main_window.show_home_page()
+        self.main_window.refresh_task_views()
+        self.main_window.return_from_task_details_page()
 
     def go_back_home(self):
-        self.main_window.show_home_page()
+        self.main_window.return_from_task_details_page()
 
 class MoneyPage(InfinityPage):
     def __init__(self, main_window, money_manager: MoneyManager):
@@ -1532,15 +1722,10 @@ class MoneyPage(InfinityPage):
         self.form_section_label = create_section_title("ADD MONEY ENTRY")
         layout.addWidget(self.form_section_label)
 
-        form = QFormLayout()
-        form.setVerticalSpacing(14)
-        form.setHorizontalSpacing(18)
-
         self.type_combo = QComboBox()
         self.type_combo.addItems(list(MONEY_ENTRY_TYPES))
         apply_combo_popup_theme(self.type_combo)
         self.type_combo.currentTextChanged.connect(self.update_person_placeholder)
-        form.addRow("Type:", self.type_combo)
 
         self.amount_spin = QDoubleSpinBox()
         self.amount_spin.setRange(0, 1_000_000)
@@ -1548,17 +1733,24 @@ class MoneyPage(InfinityPage):
         self.amount_spin.setSingleStep(100)
         self.amount_spin.setPrefix("₹ ")
         self.amount_spin.setGroupSeparatorShown(True)
-        form.addRow("Amount:", self.amount_spin)
 
         self.note_edit = QLineEdit()
         self.note_edit.setPlaceholderText("Salary, groceries, fuel, rent...")
-        form.addRow("Note:", self.note_edit)
 
         self.person_edit = QLineEdit()
         self.person_edit.setPlaceholderText("Optional")
-        form.addRow("Person:", self.person_edit)
 
-        layout.addLayout(form)
+        form_grid = QGridLayout()
+        form_grid.setHorizontalSpacing(18)
+        form_grid.setVerticalSpacing(12)
+        form_grid.addLayout(create_field_stack("Type", self.type_combo), 0, 0)
+        form_grid.addLayout(create_field_stack("Amount", self.amount_spin), 0, 1)
+        form_grid.addLayout(create_field_stack("Note", self.note_edit), 1, 0)
+        form_grid.addLayout(create_field_stack("Person", self.person_edit), 1, 1)
+        form_grid.setColumnStretch(0, 1)
+        form_grid.setColumnStretch(1, 1)
+
+        layout.addLayout(form_grid)
 
         form_btn_row = QHBoxLayout()
         form_btn_row.setSpacing(10)
@@ -1596,6 +1788,7 @@ class MoneyPage(InfinityPage):
         layout.addLayout(filter_row)
 
         self.entries_list = QListWidget()
+        self.entries_list.setObjectName("cardList")
         self.entries_list.setSpacing(4)
         self.entries_list.setMinimumHeight(170)
         layout.addWidget(self.entries_list)
@@ -1795,7 +1988,6 @@ class MoneyPage(InfinityPage):
 
         for entry in entries:
             item = QListWidgetItem()
-            item.setSizeHint(QSize(0, 94))
             self.entries_list.addItem(item)
             entry_card = MoneyEntryCard(
                 entry=entry,
@@ -1803,6 +1995,7 @@ class MoneyPage(InfinityPage):
                 delete_callback=self.delete_entry,
             )
             self.entries_list.setItemWidget(item, entry_card)
+            item.setSizeHint(list_card_size_hint(entry_card, 94))
 
     def go_back_home(self):
         self.main_window.show_home_page()
@@ -1825,13 +2018,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.stack)
 
         self.home_page = HomePage(self, self.task_manager)
+        self.tasks_page = TasksPage(self, self.task_manager)
         self.add_task_page = AddTaskPage(self, self.task_manager)
         self.task_details_page = TaskDetailsPage(self, self.task_manager)
         self.money_page = MoneyPage(self, self.money_manager)
         self.ai_chat_page = AssistantChatPage(self, self.task_manager, self.money_manager)
+        self.task_form_return_page = self.home_page
+        self.task_details_return_page = self.home_page
 
         self.stack.addWidget(self.home_page)      # index 0
-        self.stack.addWidget(self.add_task_page)  # index 1
+        self.stack.addWidget(self.tasks_page)
+        self.stack.addWidget(self.add_task_page)  # index 2
         self.stack.addWidget(self.task_details_page)
         self.stack.addWidget(self.money_page)
         self.stack.addWidget(self.ai_chat_page)
@@ -1839,14 +2036,28 @@ class MainWindow(QMainWindow):
         self.show_home_page()
 
     def show_home_page(self):
+        self.home_page.refresh_lists()
+        self.home_page.refresh_suggestion()
         self.stack.setCurrentWidget(self.home_page)
 
-    def show_add_task_page(self):
+    def show_tasks_page(self):
+        self.tasks_page.refresh_lists()
+        self.stack.setCurrentWidget(self.tasks_page)
+
+    def show_add_task_page(self, return_page=None):
+        self.task_form_return_page = return_page or self.home_page
         self.stack.setCurrentWidget(self.add_task_page)
 
-    def show_task_details_page(self, task: Task):
+    def return_from_add_task_page(self):
+        self.stack.setCurrentWidget(self.task_form_return_page)
+
+    def show_task_details_page(self, task: Task, return_page=None):
+        self.task_details_return_page = return_page or self.tasks_page
         self.task_details_page.show_task(task)
         self.stack.setCurrentWidget(self.task_details_page)
+
+    def return_from_task_details_page(self):
+        self.stack.setCurrentWidget(self.task_details_return_page)
 
     def show_money_page(self):
         self.stack.setCurrentWidget(self.money_page)
@@ -1854,3 +2065,8 @@ class MainWindow(QMainWindow):
     def show_ai_chat_page(self):
         self.ai_chat_page.prepare_page()
         self.stack.setCurrentWidget(self.ai_chat_page)
+
+    def refresh_task_views(self):
+        self.home_page.refresh_lists()
+        self.home_page.refresh_suggestion()
+        self.tasks_page.refresh_lists()

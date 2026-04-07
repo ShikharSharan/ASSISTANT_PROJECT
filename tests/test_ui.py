@@ -28,11 +28,11 @@ class TaskUiTests(IsolatedDatabaseTestCase):
 
     def test_view_selected_task_button_opens_details_page(self):
         self.window.task_manager.add_task("Submit taxes", "Upload forms", "High")
-        self.window.home_page.refresh_lists()
+        self.window.tasks_page.refresh_lists()
 
-        first_item = self.window.home_page.pending_list.item(0)
-        self.window.home_page.pending_list.setCurrentItem(first_item)
-        self.window.home_page.view_task_btn.click()
+        first_item = self.window.tasks_page.pending_list.item(0)
+        self.window.tasks_page.pending_list.setCurrentItem(first_item)
+        self.window.tasks_page.view_task_btn.click()
         self.app.processEvents()
 
         self.assertIs(self.window.stack.currentWidget(), self.window.task_details_page)
@@ -45,24 +45,43 @@ class TaskUiTests(IsolatedDatabaseTestCase):
 
     def test_view_selected_task_without_selection_shows_message(self):
         with patch("app.ui.QMessageBox.information") as info_mock:
-            self.window.home_page.view_task_btn.click()
+            self.window.tasks_page.view_task_btn.click()
 
         info_mock.assert_called_once()
         self.assertIs(self.window.stack.currentWidget(), self.window.home_page)
 
-    def test_mark_done_from_details_page_returns_home_and_updates_lists(self):
+    def test_mark_done_from_details_page_returns_tasks_page_and_updates_lists(self):
         self.window.task_manager.add_task("Book dentist", "Call clinic", "Medium")
-        self.window.home_page.refresh_lists()
+        self.window.tasks_page.refresh_lists()
 
-        first_item = self.window.home_page.pending_list.item(0)
-        self.window.home_page.pending_list.setCurrentItem(first_item)
-        self.window.home_page.view_selected_task()
+        first_item = self.window.tasks_page.pending_list.item(0)
+        self.window.tasks_page.pending_list.setCurrentItem(first_item)
+        self.window.tasks_page.view_selected_task()
         self.window.task_details_page.mark_done_btn.click()
         self.app.processEvents()
 
-        self.assertIs(self.window.stack.currentWidget(), self.window.home_page)
-        self.assertEqual(self.window.home_page.pending_list.count(), 0)
+        self.assertIs(self.window.stack.currentWidget(), self.window.tasks_page)
+        self.assertEqual(self.window.tasks_page.pending_list.count(), 0)
+        self.assertEqual(self.window.home_page.stat_values["pending"].text(), "0")
         self.assertEqual(len(self.window.task_manager.list_completed_tasks()), 1)
+
+    def test_add_task_page_rejects_duplicate_pending_task(self):
+        self.window.task_manager.add_task("Submit taxes", "Upload forms", "High")
+        self.window.show_add_task_page(return_page=self.window.tasks_page)
+
+        self.window.add_task_page.title_edit.setText("Submit taxes")
+        self.window.add_task_page.details_edit.setPlainText("Upload forms")
+        self.window.add_task_page.priority_combo.setCurrentText("High")
+
+        with patch("app.ui.QMessageBox.warning") as warning_mock:
+            self.window.add_task_page.save_btn.click()
+        self.app.processEvents()
+
+        warning_mock.assert_called_once()
+        self.assertIn("already in your pending list", warning_mock.call_args.args[2])
+        self.assertEqual(len(self.window.task_manager.list_pending_tasks()), 1)
+        self.assertIs(self.window.stack.currentWidget(), self.window.add_task_page)
+        self.assertTrue(self.window.add_task_page.save_btn.isEnabled())
 
     def test_home_page_stat_cards_show_task_counts(self):
         self.window.task_manager.add_task("Deep work", "Focus block", "High")
@@ -150,6 +169,36 @@ class TaskUiTests(IsolatedDatabaseTestCase):
         self.assertEqual(self.window.money_page.entries_list.count(), 0)
         self.assertEqual(self.window.money_page.empty_state_title.text(), "No entries for this month")
 
+    def test_money_page_entry_buttons_stay_inside_card(self):
+        self.window.resize(1200, 800)
+        self.window.money_manager.add_entry("Expense", 3200, "Groceries and household stuff", "")
+        self.window.show_money_page()
+        self.window.money_page.refresh_entries()
+        self.window.show()
+        self.app.processEvents()
+
+        first_item = self.window.money_page.entries_list.item(0)
+        row_widget = self.window.money_page.entries_list.itemWidget(first_item)
+
+        self.assertGreaterEqual(first_item.sizeHint().height(), row_widget.sizeHint().height())
+        self.assertLessEqual(row_widget.edit_btn.geometry().bottom(), row_widget.rect().bottom())
+        self.assertLessEqual(row_widget.delete_btn.geometry().bottom(), row_widget.rect().bottom())
+
+    def test_money_page_add_form_uses_two_column_layout(self):
+        self.window.resize(1200, 800)
+        self.window.show_money_page()
+        self.window.show()
+        self.app.processEvents()
+
+        type_top = self.window.money_page.type_combo.geometry().top()
+        amount_top = self.window.money_page.amount_spin.geometry().top()
+        note_top = self.window.money_page.note_edit.geometry().top()
+        person_top = self.window.money_page.person_edit.geometry().top()
+
+        self.assertLess(abs(type_top - amount_top), 12)
+        self.assertLess(abs(note_top - person_top), 12)
+        self.assertGreater(note_top, type_top)
+
     def test_home_ai_chat_button_opens_chat_page(self):
         self.window.task_manager.add_task("Deep work", "Focus block", "High")
         self.window.home_page.refresh_lists()
@@ -207,32 +256,67 @@ class TaskUiTests(IsolatedDatabaseTestCase):
         self.assertEqual(self.window.home_page.focus_title_label.text(), "High task")
         self.assertIn("High priority", self.window.home_page.focus_meta_label.text())
 
-    def test_home_filter_buttons_reduce_visible_tasks(self):
+    def test_home_open_tasks_button_shows_dedicated_tasks_page(self):
+        self.window.home_page.open_tasks_btn.click()
+        self.app.processEvents()
+
+        self.assertIs(self.window.stack.currentWidget(), self.window.tasks_page)
+
+    def test_home_focus_task_details_back_returns_to_home(self):
         self.window.task_manager.add_task("High task", "Critical", "High")
-        self.window.task_manager.add_task("Low task", "Later", "Low")
-        self.window.home_page.set_active_filter("High")
-
-        self.assertEqual(self.window.home_page.pending_list.count(), 1)
-        first_item = self.window.home_page.pending_list.item(0)
-        row_widget = self.window.home_page.pending_list.itemWidget(first_item)
-        self.assertEqual(row_widget.title_label.text(), "High task")
-
-    def test_home_empty_state_appears_when_filter_has_no_match(self):
-        self.window.task_manager.add_task("Low task", "Later", "Low")
-        self.window.home_page.set_active_filter("High")
-
-        self.assertEqual(self.window.home_page.pending_list.count(), 0)
-        self.assertEqual(self.window.home_page.empty_state_title.text(), "No tasks match this filter")
-        self.assertEqual(self.window.home_page.empty_state_action_btn.text(), "Show all tasks")
-
-    def test_home_task_row_done_button_marks_task_complete(self):
-        self.window.task_manager.add_task("Stretch break", "Quick win", "Low")
         self.window.home_page.refresh_lists()
 
-        first_item = self.window.home_page.pending_list.item(0)
-        row_widget = self.window.home_page.pending_list.itemWidget(first_item)
+        self.window.home_page.focus_open_btn.click()
+        self.app.processEvents()
+        self.window.task_details_page.back_btn.click()
+        self.app.processEvents()
+
+        self.assertIs(self.window.stack.currentWidget(), self.window.home_page)
+
+    def test_tasks_page_filter_buttons_reduce_visible_tasks(self):
+        self.window.task_manager.add_task("High task", "Critical", "High")
+        self.window.task_manager.add_task("Low task", "Later", "Low")
+        self.window.tasks_page.set_active_filter("High")
+
+        self.assertEqual(self.window.tasks_page.pending_list.count(), 1)
+        first_item = self.window.tasks_page.pending_list.item(0)
+        row_widget = self.window.tasks_page.pending_list.itemWidget(first_item)
+        self.assertEqual(row_widget.title_label.text(), "High task")
+
+    def test_tasks_page_empty_state_appears_when_filter_has_no_match(self):
+        self.window.task_manager.add_task("Low task", "Later", "Low")
+        self.window.tasks_page.set_active_filter("High")
+
+        self.assertEqual(self.window.tasks_page.pending_list.count(), 0)
+        self.assertEqual(self.window.tasks_page.empty_state_title.text(), "No tasks match this filter")
+        self.assertEqual(self.window.tasks_page.empty_state_action_btn.text(), "Show all tasks")
+
+    def test_tasks_page_task_row_done_button_marks_task_complete(self):
+        self.window.task_manager.add_task("Stretch break", "Quick win", "Low")
+        self.window.tasks_page.refresh_lists()
+
+        first_item = self.window.tasks_page.pending_list.item(0)
+        row_widget = self.window.tasks_page.pending_list.itemWidget(first_item)
         row_widget.done_btn.click()
         self.app.processEvents()
 
-        self.assertEqual(self.window.home_page.pending_list.count(), 0)
+        self.assertEqual(self.window.tasks_page.pending_list.count(), 0)
         self.assertEqual(self.window.home_page.stat_values["done_today"].text(), "1")
+
+    def test_tasks_page_task_row_buttons_stay_inside_card_for_wrapped_content(self):
+        self.window.resize(1200, 800)
+        self.window.task_manager.add_task(
+            "need to study half hours need to study half hours need to study half hours",
+            "study coding " * 20,
+            "Medium",
+        )
+        self.window.tasks_page.refresh_lists()
+        self.window.show()
+        self.app.processEvents()
+
+        first_item = self.window.tasks_page.pending_list.item(0)
+        row_widget = self.window.tasks_page.pending_list.itemWidget(first_item)
+
+        self.assertGreaterEqual(first_item.sizeHint().height(), row_widget.sizeHint().height())
+        self.assertLessEqual(row_widget.open_btn.geometry().bottom(), row_widget.rect().bottom())
+        self.assertLessEqual(row_widget.done_btn.geometry().bottom(), row_widget.rect().bottom())
