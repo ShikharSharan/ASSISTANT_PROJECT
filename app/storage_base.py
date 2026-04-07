@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple
-from datetime import datetime
 from .models import Task, MoneyEntry
 
 class StorageBase(ABC):
@@ -21,9 +20,26 @@ class StorageBase(ABC):
         ...
 
     @abstractmethod
-    def get_money_entries(self) -> List[MoneyEntry]:
+    def update_money_entry(self, entry_id: int, entry_type: str, amount: float, note: str, person: str) -> None:
         ...
 
     @abstractmethod
-    def get_money_summary(self) -> Tuple[float, float, float, float, float]:
+    def delete_money_entry(self, entry_id: int) -> None:
+        ...
+
+    @abstractmethod
+    def get_money_entries(
+        self,
+        year: int | None = None,
+        month: int | None = None,
+        entry_type: str | None = None,
+    ) -> List[MoneyEntry]:
+        ...
+
+    @abstractmethod
+    def get_money_summary(
+        self,
+        year: int | None = None,
+        month: int | None = None,
+    ) -> Tuple[float, float, float, float, float]:
         ...

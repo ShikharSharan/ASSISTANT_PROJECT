@@ -8,6 +8,7 @@ class Task:
     title: str
     description: str = ""
     date: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     time: Optional[datetime] = None  # we can refine later
     priority: str = "Medium"
     done: bool = False
