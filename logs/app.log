@@ -1,4 +1,0 @@
-2026-04-06 21:39:10,083 - INFO - app.backend - Added task: Task(id=1, title='hi', description='', start_time=None, end_time=None, done=False)
-2026-04-06 21:56:36,780 - INFO - app.backend - Added task: Task(id=1, title='padhai databricks', description='karna hai jaldi', date=datetime.datetime(2026, 4, 6, 21, 56, 36, 779638), time=None, priority='High', done=False)
-2026-04-06 22:06:45,795 - INFO - app.backend - Added task with id 1
-2026-04-07 15:19:38,158 - INFO - app.backend - Marked task 1 as done
