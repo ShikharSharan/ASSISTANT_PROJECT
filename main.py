@@ -2,7 +2,7 @@ import sys
 from PyQt6.QtWidgets import QApplication
 from logging_conf import setup_logging
 from app.ui import MainWindow
-#ver 1.1.1
+#ver 1.1.2
 def main():
     setup_logging()
     app = QApplication(sys.argv)
