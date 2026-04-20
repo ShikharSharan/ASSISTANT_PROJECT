@@ -29,11 +29,12 @@ class FakeMoneyManager:
 
 class AiSuggestionTests(unittest.TestCase):
     def test_get_daily_suggestion_without_pending_tasks(self):
-        suggestion = get_daily_suggestion(FakeTaskManager([]))
+        fake_money = FakeMoneyManager({'net_balance': 1000, 'salary': 5000, 'expenses': 3000})
+        suggestion = get_daily_suggestion(FakeTaskManager([]), fake_money)
 
-        self.assertEqual(
-            suggestion,
+        self.assertIn(
             "You have no pending tasks. This is a good day to rest or plan ahead.",
+            suggestion,
         )
 
     def test_get_daily_suggestion_counts_high_priority_tasks(self):
@@ -42,8 +43,9 @@ class AiSuggestionTests(unittest.TestCase):
             Task(id=2, title="Inbox cleanup", priority="Low"),
             Task(id=3, title="Review PR", priority="High"),
         ]
+        fake_money = FakeMoneyManager({'net_balance': 1000, 'salary': 5000, 'expenses': 3000})
 
-        suggestion = get_daily_suggestion(FakeTaskManager(tasks))
+        suggestion = get_daily_suggestion(FakeTaskManager(tasks), fake_money)
 
         self.assertIn("3 pending tasks", suggestion)
         self.assertIn("2 marked High priority", suggestion)

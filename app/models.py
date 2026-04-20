@@ -9,14 +9,14 @@ class Task:
     description: str = ""
     date: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    time: Optional[datetime] = None  # we can refine later
+    time: Optional[datetime] = None
     priority: str = "Medium"
     done: bool = False
 
 @dataclass
 class MoneyEntry:
     id: int
-    entry_type: str      # "Income", "Expense", "EMI", "Credit", "Given", "Taken"
+    entry_type: str
     amount: float
     date: datetime
     note: str = ""

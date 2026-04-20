@@ -1,6 +1,6 @@
 from datetime import datetime
 from html import escape
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter
+from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QListWidget, QListWidgetItem,
@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QSize, Qt
 from .backend import TaskManager, MoneyManager
 from .ai import get_chat_response, get_daily_suggestion
-from .errors import AssistantDataError
+from .errors import AssistantDataError, ValidationError
 from .models import Task
 from .validation import MONEY_ENTRY_TYPES, TASK_PRIORITIES
 
@@ -744,6 +744,9 @@ class AssistantChatPage(InfinityPage):
         ("What first?", "What should I focus on first today?"),
         ("Money check", "How is my money looking this month?"),
         ("Evening reset", "Give me a productive evening routine."),
+        ("Survival mode", "I'm overwhelmed - help me survive today."),
+        ("Weekly goals", "Set my weekly goals for survival."),
+        ("Productivity insights", "Give me productivity insights."),
     ]
 
     def __init__(self, main_window, task_manager: TaskManager, money_manager: MoneyManager):
@@ -963,10 +966,11 @@ class AssistantChatPage(InfinityPage):
 
 
 class HomePage(InfinityPage):
-    def __init__(self, main_window, task_manager: TaskManager):
+    def __init__(self, main_window, task_manager: TaskManager, money_manager: MoneyManager):
         super().__init__()
         self.main_window = main_window
         self.task_manager = task_manager
+        self.money_manager = money_manager
         self.current_focus_task_id = None
 
         layout = create_page_layout(self)
@@ -1127,7 +1131,7 @@ class HomePage(InfinityPage):
         self.refresh_task_space(pending)
 
     def refresh_suggestion(self):
-        suggestion = get_daily_suggestion(self.task_manager)
+        suggestion = get_daily_suggestion(self.task_manager, self.money_manager)
         if self.task_manager.list_pending_tasks():
             self.ai_heading_label.setText("Best next step")
         else:
@@ -1244,11 +1248,13 @@ class TasksPage(InfinityPage):
 
         self.home_btn = QPushButton("Home")
         self.home_btn.setObjectName("compactButton")
+        self.home_btn.setIcon(QIcon.fromTheme("go-home"))
         self.home_btn.clicked.connect(self.go_home)
         header_row.addWidget(self.home_btn)
 
         self.money_btn = QPushButton("Money")
         self.money_btn.setObjectName("compactButton")
+        self.money_btn.setIcon(QIcon.fromTheme("view-financial-list"))
         self.money_btn.clicked.connect(self.go_to_money)
         header_row.addWidget(self.money_btn)
         layout.addLayout(header_row)
@@ -1288,6 +1294,14 @@ class TasksPage(InfinityPage):
         self.filter_buttons[self.active_filter].setChecked(True)
         filter_row.addStretch(1)
         layout.addLayout(filter_row)
+
+        search_row = QHBoxLayout()
+        search_row.addWidget(QLabel("Search:"))
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search tasks...")
+        self.search_edit.textChanged.connect(self.refresh_lists)
+        search_row.addWidget(self.search_edit)
+        layout.addLayout(search_row)
 
         self.pending_list = QListWidget()
         self.pending_list.setObjectName("cardList")
@@ -1378,12 +1392,24 @@ class TasksPage(InfinityPage):
         self.refresh_lists()
 
     def get_filtered_tasks(self, pending_tasks):
+        # First filter by priority
         if self.active_filter == "All":
-            return pending_tasks
-        return [
-            task for task in pending_tasks
-            if task.priority == self.active_filter
-        ]
+            filtered = pending_tasks
+        else:
+            filtered = [
+                task for task in pending_tasks
+                if task.priority == self.active_filter
+            ]
+        
+        # Then filter by search text
+        search_text = self.search_edit.text().strip().lower()
+        if search_text:
+            filtered = [
+                task for task in filtered
+                if search_text in task.title.lower() or search_text in task.description.lower()
+            ]
+        
+        return filtered
 
     def render_pending_tasks(self, tasks, all_pending_tasks, selected_task_id):
         self.pending_list.clear()
@@ -1552,18 +1578,25 @@ class AddTaskPage(InfinityPage):
         title = self.title_edit.text().strip()
         try:
             if not title:
-                QMessageBox.information(
+                QMessageBox.warning(
                     self,
-                    "Task title required",
-                    "Add a task title before saving.",
+                    "Validation Error",
+                    "Task title cannot be empty.",
                 )
                 return
             description = self.details_edit.toPlainText().strip()
             priority = self.priority_combo.currentText()
             try:
                 self.task_manager.add_task(title=title, description=description, priority=priority)
+                QMessageBox.information(self, "Success", "Task added successfully!")
+            except ValidationError as exc:
+                QMessageBox.warning(self, "Validation Error", str(exc))
+                return
             except AssistantDataError as exc:
-                QMessageBox.warning(self, "Unable to save task", str(exc))
+                QMessageBox.critical(self, "Data Error", f"Unable to save task: {str(exc)}")
+                return
+            except Exception as exc:
+                QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred: {str(exc)}")
                 return
             # clear form
             self.title_edit.clear()
@@ -1685,6 +1718,11 @@ class MoneyPage(InfinityPage):
         self.ai_chat_btn.setObjectName("compactPrimaryButton")
         self.ai_chat_btn.clicked.connect(self.go_to_ai_chat)
         header_row.addWidget(self.ai_chat_btn)
+
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setObjectName("compactButton")
+        self.export_btn.clicked.connect(self.export_data)
+        header_row.addWidget(self.export_btn)
 
         prev_month_btn = QPushButton("Previous")
         prev_month_btn.setObjectName("compactButton")
@@ -2000,6 +2038,31 @@ class MoneyPage(InfinityPage):
     def go_back_home(self):
         self.main_window.show_home_page()
 
+    def export_data(self):
+        from PyQt6.QtWidgets import QFileDialog
+        import csv
+        from pathlib import Path
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Money Data", str(Path.home() / "money_export.csv"), "CSV Files (*.csv)"
+        )
+        if not file_path:
+            return
+        
+        try:
+            entries = self.money_manager.list_entries()  # Get all entries
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['ID', 'Type', 'Amount', 'Date', 'Note', 'Person'])
+                for entry in entries:
+                    writer.writerow([
+                        entry.id, entry.entry_type, entry.amount, 
+                        entry.date.strftime('%Y-%m-%d'), entry.note, entry.person
+                    ])
+            QMessageBox.information(self, "Export Successful", f"Data exported to {file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", f"Error: {str(e)}")
+
     def go_to_ai_chat(self):
         self.main_window.show_ai_chat_page()
 
@@ -2017,7 +2080,7 @@ class MainWindow(QMainWindow):
         self.stack.setObjectName("pageStack")
         self.setCentralWidget(self.stack)
 
-        self.home_page = HomePage(self, self.task_manager)
+        self.home_page = HomePage(self, self.task_manager, self.money_manager)
         self.tasks_page = TasksPage(self, self.task_manager)
         self.add_task_page = AddTaskPage(self, self.task_manager)
         self.task_details_page = TaskDetailsPage(self, self.task_manager)

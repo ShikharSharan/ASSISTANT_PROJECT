@@ -15,6 +15,7 @@ It currently includes:
 - Python 3.10+
 - PyQt6
 - SQLite
+- Groq API (optional, for enhanced AI responses)
 - `unittest` for tests
 
 ## Setup
@@ -24,6 +25,18 @@ Install dependencies:
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+### Optional: Groq AI Integration
+
+For enhanced AI responses, you can integrate with Groq's API:
+
+1. Get an API key from [Groq Console](https://console.groq.com/)
+2. Create a `.env` file in the project root:
+   ```
+   GROQ_API_KEY=your_actual_api_key_here
+   ```
+
+The app will automatically use Groq for complex queries while falling back to the built-in AI for simple responses.
 
 ## Run The App
 
