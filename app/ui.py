@@ -2068,6 +2068,80 @@ class MoneyPage(InfinityPage):
     def go_to_ai_chat(self):
         self.main_window.show_ai_chat_page()
 
+
+class NavigationBar(QFrame):
+    """Persistent navigation sidebar with main application sections."""
+    
+    def __init__(self, main_window):
+        super().__init__()
+        self.main_window = main_window
+        self.setObjectName("navigationBar")
+        self.setFixedWidth(180)
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 16, 0, 16)
+        layout.setSpacing(0)
+        self.setLayout(layout)
+        
+        # App title
+        title = QLabel("Assistant")
+        title.setObjectName("navTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        
+        # Add spacing
+        layout.addSpacing(24)
+        
+        # Navigation items with icons/labels
+        self.nav_items = {
+            "home": self._create_nav_button("🏠 Home", "home"),
+            "tasks": self._create_nav_button("✓ Tasks", "tasks"),
+            "money": self._create_nav_button("💰 Money", "money"),
+            "ai": self._create_nav_button("✨ Assistant", "ai"),
+        }
+        
+        for button in self.nav_items.values():
+            layout.addWidget(button)
+            layout.addSpacing(6)
+        
+        layout.addStretch(1)
+        
+        # Set active home by default
+        self._set_active("home")
+    
+    def _create_nav_button(self, text: str, nav_id: str) -> QPushButton:
+        """Create a navigation button."""
+        btn = QPushButton(text)
+        btn.setObjectName("navButton")
+        btn.setMinimumHeight(40)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(lambda: self._navigate(nav_id))
+        return btn
+    
+    def _navigate(self, nav_id: str):
+        """Handle navigation based on button click."""
+        if nav_id == "home":
+            self.main_window.show_home_page()
+        elif nav_id == "tasks":
+            self.main_window.show_tasks_page()
+        elif nav_id == "money":
+            self.main_window.show_money_page()
+        elif nav_id == "ai":
+            self.main_window.show_ai_chat_page()
+        
+        self._set_active(nav_id)
+    
+    def _set_active(self, nav_id: str):
+        """Set the active navigation item."""
+        for item_id, btn in self.nav_items.items():
+            btn.setProperty("active", item_id == nav_id)
+            repolish(btn)
+    
+    def set_active_page(self, page_type: str):
+        """Update active state based on current page."""
+        self._set_active(page_type)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -2084,9 +2158,22 @@ class MainWindow(QMainWindow):
         self.task_manager = TaskManager()
         self.money_manager = MoneyManager()
 
+        # Create central widget with layout for sidebar + content
+        central_widget = QWidget()
+        central_layout = QHBoxLayout()
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        central_widget.setLayout(central_layout)
+        self.setCentralWidget(central_widget)
+        
+        # Create navigation sidebar
+        self.nav_bar = NavigationBar(self)
+        central_layout.addWidget(self.nav_bar)
+        
+        # Create stacked widget for pages
         self.stack = QStackedWidget()
         self.stack.setObjectName("pageStack")
-        self.setCentralWidget(self.stack)
+        central_layout.addWidget(self.stack)
 
         self.home_page = HomePage(self, self.task_manager, self.money_manager)
         self.tasks_page = TasksPage(self, self.task_manager)
@@ -2110,10 +2197,12 @@ class MainWindow(QMainWindow):
         self.home_page.refresh_lists()
         self.home_page.refresh_suggestion()
         self.stack.setCurrentWidget(self.home_page)
+        self.nav_bar.set_active_page("home")
 
     def show_tasks_page(self):
         self.tasks_page.refresh_lists()
         self.stack.setCurrentWidget(self.tasks_page)
+        self.nav_bar.set_active_page("tasks")
 
     def show_add_task_page(self, return_page=None):
         self.task_form_return_page = return_page or self.home_page
@@ -2132,10 +2221,12 @@ class MainWindow(QMainWindow):
 
     def show_money_page(self):
         self.stack.setCurrentWidget(self.money_page)
+        self.nav_bar.set_active_page("money")
 
     def show_ai_chat_page(self):
         self.ai_chat_page.prepare_page()
         self.stack.setCurrentWidget(self.ai_chat_page)
+        self.nav_bar.set_active_page("ai")
 
     def refresh_task_views(self):
         self.home_page.refresh_lists()

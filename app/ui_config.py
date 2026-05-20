@@ -230,6 +230,42 @@ def generate_stylesheet(theme: UITheme = None) -> str:
 QMainWindow {{
     background: {c.main_bg};
 }}
+QWidget#navigationBar {{
+    background-color: #faf3e6;
+    border-right: 1px solid {c.border_primary};
+}}
+QLabel#navTitle {{
+    color: {c.text_dark};
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}}
+QPushButton#navButton {{
+    background-color: transparent;
+    color: {c.text_primary};
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin: 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+}}
+QPushButton#navButton:hover {{
+    background-color: rgba(255, 208, 138, 0.3);
+    color: {c.text_dark};
+}}
+QPushButton#navButton:pressed {{
+    background-color: rgba(255, 208, 138, 0.5);
+}}
+QPushButton#navButton[active="true"] {{
+    background-color: {c.accent_orange};
+    color: #6b2a00;
+    font-weight: 700;
+}}
+QPushButton#navButton[active="true"]:hover {{
+    background-color: #ffc56a;
+}}
 QStackedWidget {{
     background: transparent;
 }}

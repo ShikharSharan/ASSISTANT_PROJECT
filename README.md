@@ -4,6 +4,7 @@ Assistant Pro is a local PyQt desktop app for managing tasks, money entries, and
 
 It currently includes:
 
+- **Persistent sidebar navigation** - Quick access to Home, Tasks, Money, and AI Assistant
 - A home dashboard with task stats, focus suggestions, and AI nudges
 - A dedicated tasks page for filtering and managing pending work
 - A money page for tracking income, expenses, EMI, credit payments, and personal lending/borrowing
