@@ -13,6 +13,8 @@ from .ai import get_chat_response, get_daily_suggestion
 from .errors import AssistantDataError, ValidationError
 from .models import Task
 from .validation import MONEY_ENTRY_TYPES, TASK_PRIORITIES
+from .ui_config import get_theme, get_window, generate_stylesheet, generate_combo_popup_stylesheet
+from .ui_config import get_theme, get_window, generate_stylesheet, generate_combo_popup_stylesheet
 
 APP_STYLESHEET = """
 QMainWindow {
@@ -407,7 +409,7 @@ def apply_combo_popup_theme(combo_box: QComboBox):
     popup_view.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
     popup_view.viewport().setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
     popup_view.viewport().setAutoFillBackground(True)
-    popup_view.setStyleSheet(COMBO_POPUP_STYLESHEET)
+    popup_view.setStyleSheet(generate_combo_popup_stylesheet())
     combo_box.setView(popup_view)
     combo_box.setMaxVisibleItems(8)
 
@@ -2070,8 +2072,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Assistant Pro")
-        self.resize(900, 600)
-        self.setStyleSheet(APP_STYLESHEET)
+        
+        # Apply window configuration from theme
+        window_config = get_window()
+        self.resize(window_config.width, window_config.height)
+        self.setMinimumSize(window_config.min_width, window_config.min_height)
+        
+        # Apply dynamic stylesheet from theme
+        self.setStyleSheet(generate_stylesheet())
 
         self.task_manager = TaskManager()
         self.money_manager = MoneyManager()

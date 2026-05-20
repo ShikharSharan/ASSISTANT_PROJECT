@@ -38,6 +38,17 @@ For enhanced AI responses, you can integrate with Groq's API:
 
 The app will automatically use Groq for complex queries while falling back to the built-in AI for simple responses.
 
+### Environment Profiles
+
+The app supports **dev** and **prod** environment profiles. Configure in `.env`:
+
+```
+ASSISTANT_ENV=dev    # Development mode: larger window, debug features
+ASSISTANT_ENV=prod   # Production mode: optimized, standard size (default)
+```
+
+See [CONFIGURATION.md](CONFIGURATION.md) for detailed UI configuration options and theme customization.
+
 ## Run The App
 
 ```bash
