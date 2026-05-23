@@ -1,4 +1,5 @@
-# Runtime dependencies
-PyQt6>=6.11,<7
-groq>=0.4.0
-python-dotenv>=1.0.0
+PyQt6
+groq
+python-dotenv
+argon2-cffi
+sqlcipher3-binary
