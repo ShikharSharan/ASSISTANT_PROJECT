@@ -266,6 +266,23 @@ QPushButton#navButton[active="true"] {{
 QPushButton#navButton[active="true"]:hover {{
     background-color: #ffc56a;
 }}
+QPushButton#aiStatusButton {{
+    border-radius: 10px;
+    margin: 0 12px;
+    padding: 8px 10px;
+    min-height: 34px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+}}
+QPushButton#aiStatusButton[connected="true"] {{
+    background-color: #1f9d55;
+    border: 1px solid #15703c;
+}}
+QPushButton#aiStatusButton[connected="false"] {{
+    background-color: #d64545;
+    border: 1px solid #9f2f2f;
+}}
 QStackedWidget {{
     background: transparent;
 }}

@@ -5,7 +5,31 @@ from groq import Groq
 
 from .backend import MoneyManager, TaskManager
 from .models import Task, MoneyEntry
-from config import GROQ_API_KEY
+from .ai_settings import AISettings, load_ai_settings, save_ai_settings
+
+_CURRENT_AI_SETTINGS = load_ai_settings()
+_AI_CONNECTED = bool(_CURRENT_AI_SETTINGS.api_key)
+
+
+def get_ai_settings() -> AISettings:
+    return _CURRENT_AI_SETTINGS
+
+
+def update_ai_settings(provider: str, model: str, api_key: str) -> AISettings:
+    global _AI_CONNECTED, _CURRENT_AI_SETTINGS
+    _CURRENT_AI_SETTINGS = save_ai_settings(
+        AISettings(provider=provider, model=model, api_key=api_key)
+    )
+    _AI_CONNECTED = bool(_CURRENT_AI_SETTINGS.api_key)
+    return _CURRENT_AI_SETTINGS
+
+
+def is_ai_connected() -> bool:
+    return _AI_CONNECTED
+
+
+def get_ai_status_text() -> str:
+    return "AI Connected" if _AI_CONNECTED else "AI Offline"
 
 
 def _priority_rank(priority: str) -> int:
@@ -217,11 +241,14 @@ def _generate_survival_recommendations(
 
 def _get_groq_response(prompt: str, context: str = "") -> str:
     """Get response from Groq API for enhanced AI capabilities."""
-    if not GROQ_API_KEY:
+    global _AI_CONNECTED
+    settings = get_ai_settings()
+    if settings.provider != "Groq" or not settings.api_key:
+        _AI_CONNECTED = False
         return None  # Fallback to rule-based system
     
     try:
-        client = Groq(api_key=GROQ_API_KEY)
+        client = Groq(api_key=settings.api_key)
         
         system_prompt = """You are a helpful AI assistant for a personal productivity and finance app. 
         You help users manage tasks and money effectively. Be supportive, practical, and encouraging.
@@ -230,7 +257,7 @@ def _get_groq_response(prompt: str, context: str = "") -> str:
         full_prompt = f"{system_prompt}\n\nContext: {context}\n\nUser: {prompt}"
         
         completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=settings.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Context: {context}\n\n{prompt}"}
@@ -241,9 +268,11 @@ def _get_groq_response(prompt: str, context: str = "") -> str:
             stream=False
         )
         
+        _AI_CONNECTED = True
         return completion.choices[0].message.content.strip()
     except Exception as e:
         print(f"Groq API error: {e}")
+        _AI_CONNECTED = False
         return None  # Fallback to rule-based system
 
 
