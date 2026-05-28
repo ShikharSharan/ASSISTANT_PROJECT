@@ -14,7 +14,6 @@ from .errors import AssistantDataError, ValidationError
 from .models import Task
 from .validation import MONEY_ENTRY_TYPES, TASK_PRIORITIES
 from .ui_config import get_theme, get_window, generate_stylesheet, generate_combo_popup_stylesheet
-from .ui_config import get_theme, get_window, generate_stylesheet, generate_combo_popup_stylesheet
 
 APP_STYLESHEET = """
 QMainWindow {
@@ -459,12 +458,12 @@ def create_stats_grid(
 
 
 def format_currency(value: float) -> str:
-    return f"₹{int(round(value)):,}"
+    return f"\u20b9{int(round(value)):,}"
 
 
 def format_signed_currency(value: float) -> str:
     sign = "-" if value < 0 else ""
-    return f"{sign}₹{abs(int(round(value))):,}"
+    return f"{sign}\u20b9{abs(int(round(value))):,}"
 
 
 def get_greeting_text(moment: datetime) -> str:
@@ -977,7 +976,7 @@ class HomePage(InfinityPage):
 
         layout = create_page_layout(self)
 
-        self.header_label = QLabel(f"Home – Today: {datetime.now().strftime('%a, %d %b %Y')}")
+        self.header_label = QLabel(f"Home \u2013 Today: {datetime.now().strftime('%a, %d %b %Y')}")
         self.header_label.setObjectName("pageTitle")
         layout.addWidget(self.header_label)
 
@@ -1126,7 +1125,7 @@ class HomePage(InfinityPage):
         self.stat_values["focus_hours"].setText(f"~{len(pending)}h")
         self.subtitle_label.setText(
             f"{get_greeting_text(datetime.now())}. {len(pending)} task"
-            f"{'' if len(pending) == 1 else 's'} are active right now."
+            f"{'s' if len(pending) != 1 else ''} are active right now."
         )
 
         self.refresh_focus_card(pending)
@@ -1394,7 +1393,6 @@ class TasksPage(InfinityPage):
         self.refresh_lists()
 
     def get_filtered_tasks(self, pending_tasks):
-        # First filter by priority
         if self.active_filter == "All":
             filtered = pending_tasks
         else:
@@ -1402,15 +1400,14 @@ class TasksPage(InfinityPage):
                 task for task in pending_tasks
                 if task.priority == self.active_filter
             ]
-        
-        # Then filter by search text
+
         search_text = self.search_edit.text().strip().lower()
         if search_text:
             filtered = [
                 task for task in filtered
                 if search_text in task.title.lower() or search_text in task.description.lower()
             ]
-        
+
         return filtered
 
     def render_pending_tasks(self, tasks, all_pending_tasks, selected_task_id):
@@ -1600,7 +1597,6 @@ class AddTaskPage(InfinityPage):
             except Exception as exc:
                 QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred: {str(exc)}")
                 return
-            # clear form
             self.title_edit.clear()
             self.details_edit.clear()
             self.priority_combo.setCurrentText("Medium")
@@ -1771,7 +1767,7 @@ class MoneyPage(InfinityPage):
         self.amount_spin.setRange(0, 1_000_000)
         self.amount_spin.setDecimals(2)
         self.amount_spin.setSingleStep(100)
-        self.amount_spin.setPrefix("₹ ")
+        self.amount_spin.setPrefix("\u20b9 ")
         self.amount_spin.setGroupSeparatorShown(True)
 
         self.note_edit = QLineEdit()
@@ -1791,444 +1787,3 @@ class MoneyPage(InfinityPage):
         form_grid.setColumnStretch(1, 1)
 
         layout.addLayout(form_grid)
-
-        form_btn_row = QHBoxLayout()
-        form_btn_row.setSpacing(10)
-        self.save_entry_btn = QPushButton("Add entry")
-        self.save_entry_btn.setObjectName("primaryButton")
-        self.save_entry_btn.clicked.connect(self.save_entry)
-        form_btn_row.addWidget(self.save_entry_btn)
-
-        self.cancel_edit_btn = QPushButton("Cancel edit")
-        self.cancel_edit_btn.setObjectName("ghostButton")
-        self.cancel_edit_btn.clicked.connect(self.reset_form)
-        self.cancel_edit_btn.hide()
-        form_btn_row.addWidget(self.cancel_edit_btn)
-        form_btn_row.addStretch(1)
-        layout.addLayout(form_btn_row)
-
-        entries_header = QHBoxLayout()
-        entries_header.addWidget(create_section_title("RECENT ENTRIES"))
-        entries_header.addStretch(1)
-        layout.addLayout(entries_header)
-
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(8)
-        for filter_name in ("All", *MONEY_ENTRY_TYPES):
-            button = QPushButton(filter_name)
-            button.setObjectName("filterChip")
-            button.setCheckable(True)
-            button.clicked.connect(
-                lambda checked=False, current_filter=filter_name: self.set_entry_filter(current_filter)
-            )
-            self.entry_filter_buttons[filter_name] = button
-            filter_row.addWidget(button)
-        self.entry_filter_buttons[self.active_entry_filter].setChecked(True)
-        filter_row.addStretch(1)
-        layout.addLayout(filter_row)
-
-        self.entries_list = QListWidget()
-        self.entries_list.setObjectName("cardList")
-        self.entries_list.setSpacing(4)
-        self.entries_list.setMinimumHeight(170)
-        layout.addWidget(self.entries_list)
-
-        self.empty_state_card = QFrame()
-        self.empty_state_card.setObjectName("emptyStateCard")
-        empty_layout = QVBoxLayout()
-        empty_layout.setContentsMargins(16, 14, 16, 14)
-        empty_layout.setSpacing(6)
-        self.empty_state_card.setLayout(empty_layout)
-
-        self.empty_state_title = QLabel("")
-        self.empty_state_title.setObjectName("emptyStateTitle")
-        empty_layout.addWidget(self.empty_state_title)
-
-        self.empty_state_body = QLabel("")
-        self.empty_state_body.setObjectName("emptyStateBody")
-        self.empty_state_body.setWordWrap(True)
-        empty_layout.addWidget(self.empty_state_body)
-
-        self.empty_state_action_btn = QPushButton("Add entry")
-        self.empty_state_action_btn.setObjectName("compactPrimaryButton")
-        empty_layout.addWidget(self.empty_state_action_btn)
-        layout.addWidget(self.empty_state_card)
-
-        back_btn = QPushButton("Back to Home")
-        back_btn.setObjectName("ghostButton")
-        back_btn.clicked.connect(self.go_back_home)
-        layout.addWidget(back_btn)
-        layout.addStretch(1)
-
-        self.update_person_placeholder(self.type_combo.currentText())
-        self.set_empty_state_action("Go to current month", self.reset_to_current_month)
-        self.refresh_month_header()
-        self.refresh_summary()
-        self.refresh_entries()
-
-    def refresh_month_header(self):
-        self.month_label.setText(format_month_label(self.selected_month))
-        self.subtitle_label.setText(
-            f"Tracking entries saved in {format_month_label(self.selected_month)}."
-        )
-
-    def change_month(self, delta: int):
-        self.selected_month = shift_month(self.selected_month, delta)
-        self.refresh_month_header()
-        self.reset_form()
-        self.refresh_summary()
-        self.refresh_entries()
-
-    def reset_to_current_month(self):
-        self.selected_month = month_start()
-        self.refresh_month_header()
-        self.refresh_summary()
-        self.refresh_entries()
-
-    def set_entry_filter(self, filter_name: str):
-        self.active_entry_filter = filter_name
-        for name, button in self.entry_filter_buttons.items():
-            button.setChecked(name == filter_name)
-        self.refresh_entries()
-
-    def update_person_placeholder(self, entry_type: str):
-        if entry_type in {"Given", "Taken"}:
-            self.person_edit.setPlaceholderText("Person name")
-        else:
-            self.person_edit.setPlaceholderText("Optional")
-
-    def save_entry(self):
-        entry_type = self.type_combo.currentText()
-        amount = float(self.amount_spin.value())
-        note = self.note_edit.text().strip()
-        person = self.person_edit.text().strip()
-        if amount <= 0:
-            QMessageBox.information(
-                self,
-                "Amount required",
-                "Enter an amount greater than zero before saving.",
-            )
-            return
-
-        try:
-            if self.editing_entry_id is None:
-                self.money_manager.add_entry(entry_type, amount, note, person)
-                if self.selected_month != month_start():
-                    self.selected_month = month_start()
-                    self.refresh_month_header()
-            else:
-                self.money_manager.update_entry(self.editing_entry_id, entry_type, amount, note, person)
-        except AssistantDataError as exc:
-            QMessageBox.warning(self, "Unable to save entry", str(exc))
-            self.refresh_entries()
-            return
-
-        self.reset_form()
-        self.refresh_summary()
-        self.refresh_entries()
-
-    def begin_edit_entry(self, entry):
-        self.editing_entry_id = entry.id
-        self.form_section_label.setText("EDIT ENTRY")
-        self.save_entry_btn.setText("Save changes")
-        self.cancel_edit_btn.show()
-        self.type_combo.setCurrentText(entry.entry_type)
-        self.amount_spin.setValue(entry.amount)
-        self.note_edit.setText(entry.note)
-        self.person_edit.setText(entry.person)
-
-    def reset_form(self):
-        self.editing_entry_id = None
-        self.form_section_label.setText("ADD MONEY ENTRY")
-        self.save_entry_btn.setText("Add entry")
-        self.cancel_edit_btn.hide()
-        self.type_combo.setCurrentText("Income")
-        self.update_person_placeholder("Income")
-        self.amount_spin.setValue(0)
-        self.note_edit.clear()
-        self.person_edit.clear()
-
-    def set_empty_state_action(self, text: str, handler):
-        self.empty_state_action_btn.setText(text)
-        try:
-            self.empty_state_action_btn.clicked.disconnect()
-        except TypeError:
-            pass
-        self.empty_state_action_btn.clicked.connect(handler)
-
-    def delete_entry(self, entry):
-        choice = QMessageBox.question(
-            self,
-            "Delete entry",
-            f"Delete '{format_money_note(entry)}' from {entry.date.strftime('%d %b %Y')}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if choice != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            self.money_manager.delete_entry(entry.id)
-        except AssistantDataError as exc:
-            QMessageBox.warning(self, "Unable to delete entry", str(exc))
-            self.refresh_entries()
-            return
-        if self.editing_entry_id == entry.id:
-            self.reset_form()
-        self.refresh_summary()
-        self.refresh_entries()
-
-    def refresh_summary(self):
-        summary = self.money_manager.compute_summary(
-            year=self.selected_month.year,
-            month=self.selected_month.month,
-        )
-        net_balance = summary["net_balance"]
-        self.stat_values["net_balance"].setText(
-            format_signed_currency(net_balance) if net_balance < 0 else format_currency(net_balance)
-        )
-        self.stat_values["salary"].setText(format_currency(summary["salary"]))
-        self.stat_values["expenses"].setText(format_currency(summary["expenses"]))
-        self.stat_values["emi"].setText(format_currency(summary["emi"]))
-        self.stat_values["credit"].setText(format_currency(summary["credit"]))
-        self.stat_values["owes_you"].setText(format_currency(summary["owes_you"]))
-
-    def refresh_entries(self):
-        self.entries_list.clear()
-        filtered_type = None if self.active_entry_filter == "All" else self.active_entry_filter
-        entries = self.money_manager.list_entries(
-            year=self.selected_month.year,
-            month=self.selected_month.month,
-            entry_type=filtered_type,
-        )
-
-        if not entries:
-            self.entries_list.hide()
-            self.empty_state_card.show()
-            if filtered_type is None:
-                self.empty_state_title.setText("No entries for this month")
-                self.empty_state_body.setText(
-                    "Add a new entry to start tracking this month, or switch months to review earlier activity."
-                )
-                if self.selected_month == month_start():
-                    self.set_empty_state_action("Add entry", self.reset_form)
-                else:
-                    self.set_empty_state_action("Go to current month", self.reset_to_current_month)
-            else:
-                self.empty_state_title.setText("No entries match this filter")
-                self.empty_state_body.setText(
-                    f"Try a different type chip or return to All to see everything in {format_month_label(self.selected_month)}."
-                )
-                self.set_empty_state_action("Show all entries", lambda: self.set_entry_filter("All"))
-            return
-
-        self.entries_list.show()
-        self.empty_state_card.hide()
-        self.set_empty_state_action("Go to current month", self.reset_to_current_month)
-
-        for entry in entries:
-            item = QListWidgetItem()
-            self.entries_list.addItem(item)
-            entry_card = MoneyEntryCard(
-                entry=entry,
-                edit_callback=self.begin_edit_entry,
-                delete_callback=self.delete_entry,
-            )
-            self.entries_list.setItemWidget(item, entry_card)
-            item.setSizeHint(list_card_size_hint(entry_card, 94))
-
-    def go_back_home(self):
-        self.main_window.show_home_page()
-
-    def export_data(self):
-        from PyQt6.QtWidgets import QFileDialog
-        import csv
-        from pathlib import Path
-        
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Money Data", str(Path.home() / "money_export.csv"), "CSV Files (*.csv)"
-        )
-        if not file_path:
-            return
-        
-        try:
-            entries = self.money_manager.list_entries()  # Get all entries
-            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['ID', 'Type', 'Amount', 'Date', 'Note', 'Person'])
-                for entry in entries:
-                    writer.writerow([
-                        entry.id, entry.entry_type, entry.amount, 
-                        entry.date.strftime('%Y-%m-%d'), entry.note, entry.person
-                    ])
-            QMessageBox.information(self, "Export Successful", f"Data exported to {file_path}")
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"Error: {str(e)}")
-
-    def go_to_ai_chat(self):
-        self.main_window.show_ai_chat_page()
-
-
-class NavigationBar(QFrame):
-    """Persistent navigation sidebar with main application sections."""
-    
-    def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
-        self.setObjectName("navigationBar")
-        self.setFixedWidth(180)
-        
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 16, 0, 16)
-        layout.setSpacing(0)
-        self.setLayout(layout)
-        
-        # App title
-        title = QLabel("Assistant")
-        title.setObjectName("navTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-        
-        # Add spacing
-        layout.addSpacing(24)
-        
-        # Navigation items with icons/labels
-        self.nav_items = {
-            "home": self._create_nav_button("🏠 Home", "home"),
-            "tasks": self._create_nav_button("✓ Tasks", "tasks"),
-            "money": self._create_nav_button("💰 Money", "money"),
-            "ai": self._create_nav_button("✨ Assistant", "ai"),
-        }
-        
-        for button in self.nav_items.values():
-            layout.addWidget(button)
-            layout.addSpacing(6)
-        
-        layout.addStretch(1)
-        
-        # Set active home by default
-        self._set_active("home")
-    
-    def _create_nav_button(self, text: str, nav_id: str) -> QPushButton:
-        """Create a navigation button."""
-        btn = QPushButton(text)
-        btn.setObjectName("navButton")
-        btn.setMinimumHeight(40)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.clicked.connect(lambda: self._navigate(nav_id))
-        return btn
-    
-    def _navigate(self, nav_id: str):
-        """Handle navigation based on button click."""
-        if nav_id == "home":
-            self.main_window.show_home_page()
-        elif nav_id == "tasks":
-            self.main_window.show_tasks_page()
-        elif nav_id == "money":
-            self.main_window.show_money_page()
-        elif nav_id == "ai":
-            self.main_window.show_ai_chat_page()
-        
-        self._set_active(nav_id)
-    
-    def _set_active(self, nav_id: str):
-        """Set the active navigation item."""
-        for item_id, btn in self.nav_items.items():
-            btn.setProperty("active", item_id == nav_id)
-            repolish(btn)
-    
-    def set_active_page(self, page_type: str):
-        """Update active state based on current page."""
-        self._set_active(page_type)
-
-
-class MainWindow(QMainWindow):
-    def __init__(self, db_key: str = ""):
-        super().__init__()
-        self.setWindowTitle("Assistant Pro")
-        
-        # Apply window configuration from theme
-        window_config = get_window()
-        self.resize(window_config.width, window_config.height)
-        self.setMinimumSize(window_config.min_width, window_config.min_height)
-        
-        # Apply dynamic stylesheet from theme
-        self.setStyleSheet(generate_stylesheet())
-
-        self.task_manager = TaskManager(db_key=db_key)
-        self.money_manager = MoneyManager(db_key=db_key)
-
-        # Create central widget with layout for sidebar + content
-        central_widget = QWidget()
-        central_layout = QHBoxLayout()
-        central_layout.setContentsMargins(0, 0, 0, 0)
-        central_layout.setSpacing(0)
-        central_widget.setLayout(central_layout)
-        self.setCentralWidget(central_widget)
-        
-        # Create navigation sidebar
-        self.nav_bar = NavigationBar(self)
-        central_layout.addWidget(self.nav_bar)
-        
-        # Create stacked widget for pages
-        self.stack = QStackedWidget()
-        self.stack.setObjectName("pageStack")
-        central_layout.addWidget(self.stack)
-
-        self.home_page = HomePage(self, self.task_manager, self.money_manager)
-        self.tasks_page = TasksPage(self, self.task_manager)
-        self.add_task_page = AddTaskPage(self, self.task_manager)
-        self.task_details_page = TaskDetailsPage(self, self.task_manager)
-        self.money_page = MoneyPage(self, self.money_manager)
-        self.ai_chat_page = AssistantChatPage(self, self.task_manager, self.money_manager)
-        self.task_form_return_page = self.home_page
-        self.task_details_return_page = self.home_page
-
-        self.stack.addWidget(self.home_page)      # index 0
-        self.stack.addWidget(self.tasks_page)
-        self.stack.addWidget(self.add_task_page)  # index 2
-        self.stack.addWidget(self.task_details_page)
-        self.stack.addWidget(self.money_page)
-        self.stack.addWidget(self.ai_chat_page)
-
-        self.show_home_page()
-
-    def show_home_page(self):
-        self.home_page.refresh_lists()
-        self.home_page.refresh_suggestion()
-        self.stack.setCurrentWidget(self.home_page)
-        self.nav_bar.set_active_page("home")
-
-    def show_tasks_page(self):
-        self.tasks_page.refresh_lists()
-        self.stack.setCurrentWidget(self.tasks_page)
-        self.nav_bar.set_active_page("tasks")
-
-    def show_add_task_page(self, return_page=None):
-        self.task_form_return_page = return_page or self.home_page
-        self.stack.setCurrentWidget(self.add_task_page)
-
-    def return_from_add_task_page(self):
-        self.stack.setCurrentWidget(self.task_form_return_page)
-
-    def show_task_details_page(self, task: Task, return_page=None):
-        self.task_details_return_page = return_page or self.tasks_page
-        self.task_details_page.show_task(task)
-        self.stack.setCurrentWidget(self.task_details_page)
-
-    def return_from_task_details_page(self):
-        self.stack.setCurrentWidget(self.task_details_return_page)
-
-    def show_money_page(self):
-        self.stack.setCurrentWidget(self.money_page)
-        self.nav_bar.set_active_page("money")
-
-    def show_ai_chat_page(self):
-        self.ai_chat_page.prepare_page()
-        self.stack.setCurrentWidget(self.ai_chat_page)
-        self.nav_bar.set_active_page("ai")
-
-    def refresh_task_views(self):
-        self.home_page.refresh_lists()
-        self.home_page.refresh_suggestion()
-        self.tasks_page.refresh_lists()
