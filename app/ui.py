@@ -2143,7 +2143,7 @@ class NavigationBar(QFrame):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, db_key: str = ""):
         super().__init__()
         self.setWindowTitle("Assistant Pro")
         
@@ -2155,8 +2155,8 @@ class MainWindow(QMainWindow):
         # Apply dynamic stylesheet from theme
         self.setStyleSheet(generate_stylesheet())
 
-        self.task_manager = TaskManager()
-        self.money_manager = MoneyManager()
+        self.task_manager = TaskManager(db_key=db_key)
+        self.money_manager = MoneyManager(db_key=db_key)
 
         # Create central widget with layout for sidebar + content
         central_widget = QWidget()

@@ -322,6 +322,97 @@ def get_productivity_insights(task_manager: TaskManager) -> str:
     return insight_text
 
 
+
+
+# ── Product improvement: richer AI summaries ──────────────────────────────
+
+def get_rich_summary(
+    task_manager,
+    money_manager,
+    budget_manager=None,
+    reference_date=None,
+) -> str:
+    """Return a multi-section rich summary covering tasks, spending, and trends."""
+    from datetime import datetime, timedelta
+    now = reference_date or datetime.now()
+    lines = []
+
+    # ── 1. Top overdue tasks ──────────────────────────────────────────────
+    pending = task_manager.list_pending_tasks()
+    overdue = sorted(
+        [t for t in pending if t.due_at and t.due_at < now],
+        key=lambda t: t.due_at,
+    )
+    if overdue:
+        lines.append("🔴 Overdue tasks:")
+        for t in overdue[:5]:
+            days_late = (now - t.due_at).days
+            lines.append(f"  • {t.title} — {days_late}d overdue [{t.priority}]")
+    else:
+        lines.append("✅ No overdue tasks.")
+
+    # ── 2. Upcoming due in 3 days ─────────────────────────────────────────
+    soon_cutoff = now + timedelta(days=3)
+    upcoming = [t for t in pending if t.due_at and now <= t.due_at <= soon_cutoff]
+    if upcoming:
+        lines.append("")
+        lines.append("⏰ Due in the next 3 days:")
+        for t in sorted(upcoming, key=lambda t: t.due_at)[:5]:
+            days_left = (t.due_at - now).days
+            label = "today" if days_left == 0 else f"in {days_left}d"
+            lines.append(f"  • {t.title} — due {label} [{t.priority}]")
+
+    # ── 3. Biggest spending category this month ───────────────────────────
+    lines.append("")
+    if budget_manager is not None:
+        report = budget_manager.spending_report(now.year, now.month)
+        if report:
+            top = report[0]
+            lines.append(
+                f"💸 Biggest spend this month: {top.category} — "
+                f"Rs {int(top.total_spent):,}"
+                + (f" (limit Rs {int(top.monthly_limit):,})" if top.monthly_limit else "")
+            )
+            over = [s for s in report if s.over_budget]
+            if over:
+                lines.append(f"  ⚠️  Over budget: {', '.join(s.category for s in over)}")
+        else:
+            lines.append("💸 No expense categories logged this month yet.")
+    else:
+        summary = money_manager.compute_summary(year=now.year, month=now.month)
+        if summary.get("expenses", 0) > 0:
+            lines.append(
+                f"💸 Total expenses this month: Rs {int(summary['expenses']):,}"
+            )
+
+    # ── 4. This month vs last month ───────────────────────────────────────
+    lines.append("")
+    this_m = money_manager.compute_summary(year=now.year, month=now.month)
+    last_date = now.replace(day=1) - timedelta(days=1)
+    last_m = money_manager.compute_summary(year=last_date.year, month=last_date.month)
+
+    this_exp = this_m.get("expenses", 0)
+    last_exp = last_m.get("expenses", 0)
+    this_inc = this_m.get("salary", 0)
+    last_inc = last_m.get("salary", 0)
+
+    if last_exp > 0:
+        exp_delta = ((this_exp - last_exp) / last_exp) * 100
+        direction = "up" if exp_delta > 0 else "down"
+        lines.append(
+            f"📊 Expenses vs last month: {direction} {abs(exp_delta):.1f}% "
+            f"(Rs {int(last_exp):,} → Rs {int(this_exp):,})"
+        )
+    if last_inc > 0:
+        inc_delta = ((this_inc - last_inc) / last_inc) * 100
+        direction = "up" if inc_delta > 0 else "down"
+        lines.append(
+            f"📈 Income vs last month: {direction} {abs(inc_delta):.1f}% "
+            f"(Rs {int(last_inc):,} → Rs {int(this_inc):,})"
+        )
+
+    return "\n".join(lines) if lines else "Nothing to summarise yet."
+
 def get_daily_suggestion(task_manager: TaskManager, money_manager: MoneyManager | None = None, reference_date: datetime | None = None) -> str:
     pending = task_manager.list_pending_tasks()
     

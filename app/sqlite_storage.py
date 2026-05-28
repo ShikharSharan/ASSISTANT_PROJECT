@@ -69,7 +69,8 @@ class SQLiteStorage(StorageBase):
     def _configure_connection(self, db_key: str) -> None:
         if _SQLCIPHER_AVAILABLE and db_key:
             # Set the encryption key — must be the very first PRAGMA issued
-            self.conn.execute(f"PRAGMA key = 'x\"{db_key}\"'")
+            #self.conn.execute(f"PRAGMA key = 'x\"{db_key}\"'")
+            self.conn.execute(f"PRAGMA key = \"x'{db_key}'\"")
             # Use AES-256-CBC (SQLCipher 4 default)
             self.conn.execute("PRAGMA cipher_page_size = 4096")
             self.conn.execute("PRAGMA kdf_iter = 256000")
@@ -78,6 +79,50 @@ class SQLiteStorage(StorageBase):
         self.conn.execute("PRAGMA busy_timeout = 5000")
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.execute("PRAGMA foreign_keys = ON")
+        self._apply_product_migrations()
+
+
+    def _apply_product_migrations(self) -> None:
+        """Idempotent schema migrations for product improvement columns."""
+        try:
+            with self.conn:
+                cur = self.conn.cursor()
+                for col, col_def in [
+                    ("due_at",         "TEXT"),
+                    ("recurrence",     "TEXT NOT NULL DEFAULT \'none\'"),
+                    ("recurrence_end", "TEXT"),
+                ]:
+                    existing_cols = {
+                        row["name"]
+                        for row in cur.execute("PRAGMA table_info(task_active)").fetchall()
+                    }
+                    if col not in existing_cols:
+                        cur.execute(f"ALTER TABLE task_active ADD COLUMN {col} {col_def}")
+
+                existing_money_cols = {
+                    row["name"]
+                    for row in cur.execute("PRAGMA table_info(money_entries)").fetchall()
+                }
+                if "category" not in existing_money_cols:
+                    cur.execute(
+                        "ALTER TABLE money_entries ADD COLUMN "
+                        "category TEXT NOT NULL DEFAULT \'Uncategorised\'"
+                    )
+
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS budget_goals (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        category TEXT NOT NULL,
+                        monthly_limit REAL NOT NULL CHECK (monthly_limit > 0),
+                        year INTEGER NOT NULL,
+                        month INTEGER NOT NULL,
+                        UNIQUE (category, year, month)
+                    )
+                    """
+                )
+        except Exception:
+            pass  # migrations are best-effort; _init_db will catch structural errors
 
     def _init_db(self):
         try:
@@ -498,7 +543,7 @@ class SQLiteStorage(StorageBase):
         )
 
     def _task_dedup_key(self, title: str, description: str, priority: str) -> str:
-        normalized_title, normalized_description, normalized_priority = normalize_task_input(title, description, priority)
+        normalized_title, normalized_description, normalized_priority, *_ = normalize_task_input(title, description, priority)
         return f"{normalized_title.lower()}|{normalized_description.lower()}|{normalized_priority}"
 
     def _backfill_task_lifecycle(self, cur) -> None:
@@ -508,7 +553,7 @@ class SQLiteStorage(StorageBase):
         existing_core_ids = {row["id"] for row in cur.execute("SELECT id FROM task_core").fetchall()}
         legacy_rows = cur.execute("SELECT * FROM tasks_legacy ORDER BY id").fetchall()
         for row in legacy_rows:
-            normalized_title, normalized_description, normalized_priority = normalize_task_input(
+            normalized_title, normalized_description, normalized_priority, *_ = normalize_task_input(
                 row["title"], row["description"] or "", row["priority"] or "Medium")
             created_at = row["date"] or datetime.now().strftime(DATE_FORMAT)
             updated_at = row["completed_at"] or created_at
@@ -563,8 +608,18 @@ class SQLiteStorage(StorageBase):
         return row is not None
 
     # ---- tasks ----
-    def insert_task(self, title: str, description: str, priority: str) -> int:
-        normalized_title, normalized_description, normalized_priority = normalize_task_input(title, description, priority)
+    def insert_task(
+        self,
+        title: str,
+        description: str,
+        priority: str,
+        due_at: str | None = None,
+        recurrence: str = "none",
+        recurrence_end: str | None = None,
+    ) -> int:
+        normalized_title, normalized_description, normalized_priority, normalized_recurrence = normalize_task_input(
+            title, description, priority, recurrence
+        )
         now_str = datetime.now().strftime(DATE_FORMAT)
         dedup_key = self._task_dedup_key(normalized_title, normalized_description, normalized_priority)
         try:
@@ -575,8 +630,8 @@ class SQLiteStorage(StorageBase):
                 )
                 task_id = cur.lastrowid
                 self.conn.execute(
-                    "INSERT INTO task_active (task_id,priority,status,last_touched_at) VALUES (?,?,?,?)",
-                    (task_id, normalized_priority, "pending", now_str),
+                    "INSERT INTO task_active (task_id, priority, status, last_touched_at, due_at) VALUES (?, ?, ?, ?, ?)",
+                    (task_id, normalized_priority, "pending", now_str, due_at),
                 )
                 self.conn.execute(
                     "INSERT INTO task_events (task_id,event_type,event_at,from_state,to_state,payload_json) VALUES (?,?,?,?,?,?)",
@@ -591,7 +646,7 @@ class SQLiteStorage(StorageBase):
             raise ValidationError("Task status filter must be 0 or 1.")
         if done == 0:
             rows = self._execute_read(
-                "SELECT c.id, c.title_clean AS title, c.description_clean AS description, c.created_at AS date, NULL AS completed_at, a.priority FROM task_core c JOIN task_active a ON a.task_id=c.id ORDER BY c.created_at DESC, c.id DESC"
+                "SELECT c.id, c.title_clean AS title, c.description_clean AS description, c.created_at AS date, NULL AS completed_at, a.priority, a.due_at, NULL AS recurrence, NULL AS recurrence_end FROM task_core c JOIN task_active a ON a.task_id=c.id ORDER BY c.created_at DESC, c.id DESC"
             )
         else:
             rows = self._execute_read(
@@ -604,6 +659,9 @@ class SQLiteStorage(StorageBase):
                 date=datetime.fromisoformat(r["date"]) if r["date"] else None,
                 completed_at=datetime.fromisoformat(r["completed_at"]) if r["completed_at"] else None,
                 priority=r["priority"] or "Medium", done=bool(done),
+                due_at=datetime.fromisoformat(r["due_at"]) if (not done and r["due_at"]) else None,
+                recurrence=r["recurrence"] if (not done and r["recurrence"]) else "none",
+                recurrence_end=datetime.fromisoformat(r["recurrence_end"]) if (not done and r["recurrence_end"]) else None,
             ))
         return tasks
 
@@ -638,21 +696,25 @@ class SQLiteStorage(StorageBase):
             raise AssistantDataError("Unable to save data to the local database.") from exc
 
     # ---- money ----
-    def insert_money_entry(self, entry_type: str, amount: float, note: str, person: str) -> int:
-        normalized_type, normalized_amount, normalized_note, normalized_person = normalize_money_entry_input(entry_type, amount, note, person)
+    def insert_money_entry(self, entry_type: str, amount: float, note: str, person: str, category: str = "") -> int:
+        normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category, *_ = normalize_money_entry_input(
+            entry_type, amount, note, person, category
+        )
         now_str = datetime.now().strftime(DATE_FORMAT)
         cur = self._execute_write(
-            "INSERT INTO money_entries (entry_type,amount,date,note,person) VALUES (?,?,?,?,?)",
-            (normalized_type, normalized_amount, now_str, normalized_note, normalized_person),
+            "INSERT INTO money_entries (entry_type,amount,date,note,person,category) VALUES (?,?,?,?,?,?)",
+            (normalized_type, normalized_amount, now_str, normalized_note, normalized_person, normalized_category),
         )
         return cur.lastrowid
 
-    def update_money_entry(self, entry_id: int, entry_type: str, amount: float, note: str, person: str) -> None:
+    def update_money_entry(self, entry_id: int, entry_type: str, amount: float, note: str, person: str, category: str = "") -> None:
         normalized_entry_id = normalize_record_id(entry_id, "Money entry")
-        normalized_type, normalized_amount, normalized_note, normalized_person = normalize_money_entry_input(entry_type, amount, note, person)
+        normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category, *_ = normalize_money_entry_input(
+            entry_type, amount, note, person, category
+        )
         cur = self._execute_write(
-            "UPDATE money_entries SET entry_type=?,amount=?,note=?,person=? WHERE id=?",
-            (normalized_type, normalized_amount, normalized_note, normalized_person, normalized_entry_id),
+            "UPDATE money_entries SET entry_type=?,amount=?,note=?,person=?,category=? WHERE id=?",
+            (normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category, normalized_entry_id),
         )
         if cur.rowcount == 0 and not self._row_exists("money_entries", normalized_entry_id):
             raise RecordNotFoundError("Money entry not found.")
@@ -712,3 +774,76 @@ class SQLiteStorage(StorageBase):
                 raise AssistantDataError("Unable to read data from the local database.") from exc
             return (row["total_minor"] if row else 0) / 100.0
         return sum_for("counts_as_income"), sum_for("counts_as_expense"), sum_for("counts_as_emi"), sum_for("counts_as_credit"), sum_for("counts_as_receivable")
+
+    # ── Budget goals (product improvement) ──────────────────────────────────
+
+    def set_budget_goal(self, category: str, monthly_limit: float, year: int, month: int) -> int:
+        """Insert or replace a monthly budget cap for a category."""
+        try:
+            with self.conn:
+                cur = self.conn.execute(
+                    "INSERT INTO budget_goals (category, monthly_limit, year, month) "
+                    "VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(category, year, month) DO UPDATE SET monthly_limit=excluded.monthly_limit",
+                    (category, monthly_limit, year, month),
+                )
+                return cur.lastrowid
+        except sqlite3.Error as exc:
+            raise AssistantDataError("Unable to save budget goal.") from exc
+
+    def get_budget_goals(self, year: int, month: int) -> list:
+        from .models import BudgetGoal
+        try:
+            rows = self.conn.execute(
+                "SELECT id, category, monthly_limit, year, month FROM budget_goals WHERE year=? AND month=?",
+                (year, month),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise AssistantDataError("Unable to read budget goals.") from exc
+        return [BudgetGoal(id=r["id"], category=r["category"], monthly_limit=r["monthly_limit"],
+                           year=r["year"], month=r["month"]) for r in rows]
+
+    def delete_budget_goal(self, goal_id: int) -> None:
+        try:
+            with self.conn:
+                self.conn.execute("DELETE FROM budget_goals WHERE id=?", (goal_id,))
+        except sqlite3.Error as exc:
+            raise AssistantDataError("Unable to delete budget goal.") from exc
+
+    def get_spending_by_category(self, year: int, month: int) -> list:
+        """Return actual spending per category, joined with any budget cap."""
+        from .models import SpendingSummary
+        start_str = f"{year:04d}-{month:02d}-01T00:00:00"
+        if month == 12:
+            end_str = f"{year + 1:04d}-01-01T00:00:00"
+        else:
+            end_str = f"{year:04d}-{month + 1:02d}-01T00:00:00"
+        try:
+            rows = self.conn.execute(
+                """
+                SELECT
+                    e.category,
+                    COALESCE(SUM(CASE WHEN k.counts_as_expense=1 OR k.counts_as_emi=1 OR k.counts_as_credit=1
+                                     THEN e.amount ELSE 0 END), 0) AS total_spent,
+                    bg.monthly_limit
+                FROM money_entries e
+                JOIN money_entry_kinds k ON k.key = e.entry_type
+                LEFT JOIN budget_goals bg
+                    ON bg.category = e.category AND bg.year=? AND bg.month=?
+                WHERE e.date >= ? AND e.date < ?
+                GROUP BY e.category
+                ORDER BY total_spent DESC
+                """,
+                (year, month, start_str, end_str),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise AssistantDataError("Unable to read spending by category.") from exc
+        return [
+            SpendingSummary(
+                category=r["category"],
+                total_spent=r["total_spent"],
+                monthly_limit=r["monthly_limit"],
+            )
+            for r in rows
+        ]
+
