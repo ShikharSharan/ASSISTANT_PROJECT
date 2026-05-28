@@ -16,6 +16,8 @@ env/
 
 # Secrets — NEVER commit these
 .env
+.env.*
+!.env.example
 *.key
 *.pem
 
@@ -25,6 +27,12 @@ data/
 *.db
 *.db-wal
 *.db-shm
+*.assistantbackup
+ai_settings.json
+
+# Runtime logs
+logs/
+*.log
 
 # macOS
 .DS_Store
