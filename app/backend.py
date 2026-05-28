@@ -12,13 +12,18 @@ from .validation import (
     normalize_record_id,
     normalize_task_input,
 )
+# Avoid circular import issues by importing storage here, after defining TaskManager and MoneyManager
+from .sqlite_storage import SQLiteStorage
+
+storage = SQLiteStorage()
+
 
 logger = logging.getLogger(__name__)
 
 
 class TaskManager:
-    def __init__(self, storage: StorageBase | None = None) -> None:
-        self.storage: StorageBase = storage if storage is not None else SQLiteStorage()
+    def __init__(self, storage: StorageBase | None = None, db_key: str = "") -> None:
+        self.storage: StorageBase = storage if storage is not None else SQLiteStorage(db_key=db_key)
 
     def list_pending_tasks(self) -> List[Task]:
         return self.storage.get_tasks(done=0)
@@ -26,11 +31,17 @@ class TaskManager:
     def list_completed_tasks(self) -> List[Task]:
         return self.storage.get_tasks(done=1)
 
-    def add_task(self, title: str, description: str = "", priority: str = "Medium") -> Task:
-        normalized_title, normalized_description, normalized_priority = normalize_task_input(
-            title,
-            description,
-            priority,
+    def add_task(
+        self,
+        title: str,
+        description: str = "",
+        priority: str = "Medium",
+        due_at: "datetime | None" = None,
+        recurrence: str = "none",
+        recurrence_end: "datetime | None" = None,
+    ) -> Task:
+        normalized_title, normalized_description, normalized_priority, normalized_recurrence = normalize_task_input(
+            title, description, priority, recurrence
         )
         for existing_task in self.list_pending_tasks():
             if (
@@ -39,7 +50,12 @@ class TaskManager:
                 and existing_task.priority == normalized_priority
             ):
                 raise ValidationError("This task is already in your pending list.")
-        task_id = self.storage.insert_task(normalized_title, normalized_description, normalized_priority)
+        due_str = due_at.strftime("%Y-%m-%dT%H:%M:%S") if due_at else None
+        end_str = recurrence_end.strftime("%Y-%m-%dT%H:%M:%S") if recurrence_end else None
+        task_id = self.storage.insert_task(
+            normalized_title, normalized_description, normalized_priority,
+            due_at=due_str, recurrence=normalized_recurrence, recurrence_end=end_str,
+        )
         logger.info("Added task with id %s", task_id)
         return Task(
             id=task_id,
@@ -49,6 +65,9 @@ class TaskManager:
             completed_at=None,
             priority=normalized_priority,
             done=False,
+            due_at=due_at,
+            recurrence=normalized_recurrence,
+            recurrence_end=recurrence_end,
         )
 
     def mark_done(self, task_id: int) -> None:
@@ -58,21 +77,15 @@ class TaskManager:
 
 
 class MoneyManager:
-    def __init__(self, storage: StorageBase | None = None) -> None:
-        self.storage: StorageBase = storage if storage is not None else SQLiteStorage()
+    def __init__(self, storage: StorageBase | None = None, db_key: str = "") -> None:
+        self.storage: StorageBase = storage if storage is not None else SQLiteStorage(db_key=db_key)
 
-    def add_entry(self, entry_type: str, amount: float, note: str = "", person: str = "") -> MoneyEntry:
-        normalized_type, normalized_amount, normalized_note, normalized_person = normalize_money_entry_input(
-            entry_type,
-            amount,
-            note,
-            person,
+    def add_entry(self, entry_type: str, amount: float, note: str = "", person: str = "", category: str = "Uncategorised") -> MoneyEntry:
+        normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category = normalize_money_entry_input(
+            entry_type, amount, note, person, category
         )
         entry_id = self.storage.insert_money_entry(
-            normalized_type,
-            normalized_amount,
-            normalized_note,
-            normalized_person,
+            normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category
         )
         logger.info("Added money entry %s", entry_id)
         return MoneyEntry(
@@ -82,6 +95,7 @@ class MoneyManager:
             date=datetime.now(),
             note=normalized_note,
             person=normalized_person,
+            category=normalized_category,
         )
 
     def update_entry(self, entry_id: int, entry_type: str, amount: float, note: str = "", person: str = "") -> None:
@@ -135,3 +149,31 @@ class MoneyManager:
             "owes_you": owes_you,
             "net_balance": salary - expenses,
         }
+
+
+class BudgetManager:
+    """Manage monthly budget goals and spending summaries."""
+
+    def __init__(self, storage=None) -> None:
+        from .sqlite_storage import SQLiteStorage
+        self.storage = storage if storage is not None else globals()['storage']
+
+    def set_goal(self, category: str, monthly_limit: float, year: int, month: int):
+        from .validation import normalize_budget_input
+        category, monthly_limit = normalize_budget_input(category, monthly_limit)
+        return self.storage.set_budget_goal(category, monthly_limit, year, month)
+
+    def list_goals(self, year: int, month: int):
+        return self.storage.get_budget_goals(year, month)
+
+    def delete_goal(self, goal_id: int) -> None:
+        from .validation import normalize_record_id
+        self.storage.delete_budget_goal(normalize_record_id(goal_id, "Budget goal"))
+
+    def spending_report(self, year: int, month: int):
+        """Return per-category spending, enriched with budget caps."""
+        return self.storage.get_spending_by_category(year, month)
+
+    def over_budget_categories(self, year: int, month: int):
+        return [s for s in self.spending_report(year, month) if s.over_budget]
+
