@@ -1,5 +1,6 @@
 from datetime import datetime
 from html import escape
+from pathlib import Path
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -9,11 +10,19 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QSize, Qt
 from .backend import TaskManager, MoneyManager
-from .ai import get_chat_response, get_daily_suggestion
+from .ai import (
+    get_ai_settings,
+    get_ai_status_text,
+    get_chat_response,
+    get_daily_suggestion,
+    is_ai_connected,
+    update_ai_settings,
+)
+from .ai_settings import DEFAULT_MODEL, SUPPORTED_PROVIDERS
+from .backup import BACKUP_EXTENSION, BackupError, export_backup, import_backup, inspect_backup
 from .errors import AssistantDataError, ValidationError
 from .models import Task
 from .validation import MONEY_ENTRY_TYPES, TASK_PRIORITIES
-from .ui_config import get_theme, get_window, generate_stylesheet, generate_combo_popup_stylesheet
 from .ui_config import get_theme, get_window, generate_stylesheet, generate_combo_popup_stylesheet
 
 APP_STYLESHEET = """
@@ -459,12 +468,12 @@ def create_stats_grid(
 
 
 def format_currency(value: float) -> str:
-    return f"₹{int(round(value)):,}"
+    return f"\u20b9{int(round(value)):,}"
 
 
 def format_signed_currency(value: float) -> str:
     sign = "-" if value < 0 else ""
-    return f"{sign}₹{abs(int(round(value))):,}"
+    return f"{sign}\u20b9{abs(int(round(value))):,}"
 
 
 def get_greeting_text(moment: datetime) -> str:
@@ -959,6 +968,8 @@ class AssistantChatPage(InfinityPage):
         self.append_message("AI Coach", reply)
         self.prompt_edit.clear()
         self.refresh_context()
+        if hasattr(self.main_window, "refresh_ai_status"):
+            self.main_window.refresh_ai_status()
 
     def go_home(self):
         self.main_window.show_home_page()
@@ -977,7 +988,7 @@ class HomePage(InfinityPage):
 
         layout = create_page_layout(self)
 
-        self.header_label = QLabel(f"Home – Today: {datetime.now().strftime('%a, %d %b %Y')}")
+        self.header_label = QLabel(f"Home \u2013 Today: {datetime.now().strftime('%a, %d %b %Y')}")
         self.header_label.setObjectName("pageTitle")
         layout.addWidget(self.header_label)
 
@@ -1126,7 +1137,7 @@ class HomePage(InfinityPage):
         self.stat_values["focus_hours"].setText(f"~{len(pending)}h")
         self.subtitle_label.setText(
             f"{get_greeting_text(datetime.now())}. {len(pending)} task"
-            f"{'' if len(pending) == 1 else 's'} are active right now."
+            f"{'s' if len(pending) != 1 else ''} are active right now."
         )
 
         self.refresh_focus_card(pending)
@@ -1394,7 +1405,6 @@ class TasksPage(InfinityPage):
         self.refresh_lists()
 
     def get_filtered_tasks(self, pending_tasks):
-        # First filter by priority
         if self.active_filter == "All":
             filtered = pending_tasks
         else:
@@ -1402,15 +1412,14 @@ class TasksPage(InfinityPage):
                 task for task in pending_tasks
                 if task.priority == self.active_filter
             ]
-        
-        # Then filter by search text
+
         search_text = self.search_edit.text().strip().lower()
         if search_text:
             filtered = [
                 task for task in filtered
                 if search_text in task.title.lower() or search_text in task.description.lower()
             ]
-        
+
         return filtered
 
     def render_pending_tasks(self, tasks, all_pending_tasks, selected_task_id):
@@ -1600,7 +1609,6 @@ class AddTaskPage(InfinityPage):
             except Exception as exc:
                 QMessageBox.critical(self, "Unexpected Error", f"An unexpected error occurred: {str(exc)}")
                 return
-            # clear form
             self.title_edit.clear()
             self.details_edit.clear()
             self.priority_combo.setCurrentText("Medium")
@@ -1771,7 +1779,7 @@ class MoneyPage(InfinityPage):
         self.amount_spin.setRange(0, 1_000_000)
         self.amount_spin.setDecimals(2)
         self.amount_spin.setSingleStep(100)
-        self.amount_spin.setPrefix("₹ ")
+        self.amount_spin.setPrefix("\u20b9 ")
         self.amount_spin.setGroupSeparatorShown(True)
 
         self.note_edit = QLineEdit()
@@ -2044,82 +2052,325 @@ class MoneyPage(InfinityPage):
         from PyQt6.QtWidgets import QFileDialog
         import csv
         from pathlib import Path
-        
+
         file_path, _ = QFileDialog.getSaveFileName(
             self, "Export Money Data", str(Path.home() / "money_export.csv"), "CSV Files (*.csv)"
         )
         if not file_path:
             return
-        
+
         try:
-            entries = self.money_manager.list_entries()  # Get all entries
-            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+            entries = self.money_manager.list_entries()
+            with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
                 writer = csv.writer(csvfile)
-                writer.writerow(['ID', 'Type', 'Amount', 'Date', 'Note', 'Person'])
+                writer.writerow(["ID", "Type", "Amount", "Date", "Note", "Person"])
                 for entry in entries:
                     writer.writerow([
-                        entry.id, entry.entry_type, entry.amount, 
-                        entry.date.strftime('%Y-%m-%d'), entry.note, entry.person
+                        entry.id,
+                        entry.entry_type,
+                        entry.amount,
+                        entry.date.strftime("%Y-%m-%d"),
+                        entry.note,
+                        entry.person,
                     ])
             QMessageBox.information(self, "Export Successful", f"Data exported to {file_path}")
-        except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"Error: {str(e)}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Failed", f"Error: {str(exc)}")
 
     def go_to_ai_chat(self):
         self.main_window.show_ai_chat_page()
 
 
+class SettingsPage(InfinityPage):
+    MODEL_OPTIONS = (
+        "llama-3.1-8b-instant",
+        "llama-3.3-70b-versatile",
+        "gemma2-9b-it",
+    )
+
+    def __init__(self, main_window):
+        super().__init__()
+        self.main_window = main_window
+
+        layout = create_page_layout(self)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(10)
+        header = QLabel("Settings")
+        header.setObjectName("pageTitle")
+        header_row.addWidget(header)
+        header_row.addStretch(1)
+
+        home_btn = QPushButton("Home")
+        home_btn.setObjectName("compactButton")
+        home_btn.clicked.connect(self.main_window.show_home_page)
+        header_row.addWidget(home_btn)
+        layout.addLayout(header_row)
+
+        subtitle = QLabel("Manage the AI provider used by chat and suggestions.")
+        subtitle.setObjectName("pageSubtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        layout.addWidget(create_section_title("AI CONNECTION"))
+
+        form = QFormLayout()
+        form.setVerticalSpacing(14)
+        form.setHorizontalSpacing(18)
+
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItems(list(SUPPORTED_PROVIDERS))
+        apply_combo_popup_theme(self.provider_combo)
+        form.addRow("Provider:", self.provider_combo)
+
+        self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
+        self.model_combo.addItems(list(self.MODEL_OPTIONS))
+        apply_combo_popup_theme(self.model_combo)
+        form.addRow("Model:", self.model_combo)
+
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_edit.setPlaceholderText("Paste your provider API key")
+        form.addRow("API key:", self.api_key_edit)
+
+        layout.addLayout(form)
+
+        status_row = QHBoxLayout()
+        status_row.setSpacing(10)
+        self.status_badge = QPushButton()
+        self.status_badge.setObjectName("aiStatusButton")
+        self.status_badge.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.status_badge.setCursor(Qt.CursorShape.ArrowCursor)
+        status_row.addWidget(self.status_badge)
+        status_row.addStretch(1)
+        layout.addLayout(status_row)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        save_btn = QPushButton("Save AI settings")
+        save_btn.setObjectName("primaryButton")
+        save_btn.clicked.connect(self.save_settings)
+        btn_row.addWidget(save_btn)
+
+        reset_btn = QPushButton("Reset model")
+        reset_btn.setObjectName("ghostButton")
+        reset_btn.clicked.connect(lambda: self.model_combo.setCurrentText(DEFAULT_MODEL))
+        btn_row.addWidget(reset_btn)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        layout.addSpacing(12)
+        layout.addWidget(create_section_title("DATA & BACKUP"))
+
+        backup_row = QHBoxLayout()
+        backup_row.setSpacing(10)
+
+        export_btn = QPushButton("Export Backup")
+        export_btn.setObjectName("primaryButton")
+        export_btn.clicked.connect(self.export_backup)
+        backup_row.addWidget(export_btn)
+
+        self.last_backup_label = QLabel("Last backup: Never")
+        self.last_backup_label.setObjectName("pageSubtitle")
+        backup_row.addWidget(self.last_backup_label, 1)
+        layout.addLayout(backup_row)
+
+        import_row = QHBoxLayout()
+        import_row.setSpacing(10)
+
+        import_btn = QPushButton("Import Backup")
+        import_btn.setObjectName("compactDangerButton")
+        import_btn.clicked.connect(self.import_backup)
+        import_row.addWidget(import_btn)
+
+        warning_label = QLabel("This will replace all current data")
+        warning_label.setObjectName("pageSubtitle")
+        import_row.addWidget(warning_label, 1)
+        layout.addLayout(import_row)
+
+        layout.addStretch(1)
+
+        self.load_settings()
+
+    def load_settings(self):
+        settings = get_ai_settings()
+        self.provider_combo.setCurrentText(settings.provider)
+        if self.model_combo.findText(settings.model) == -1:
+            self.model_combo.addItem(settings.model)
+        self.model_combo.setCurrentText(settings.model)
+        self.api_key_edit.setText(settings.api_key)
+        self.refresh_status()
+
+    def refresh_status(self):
+        connected = is_ai_connected()
+        self.status_badge.setText(get_ai_status_text())
+        self.status_badge.setProperty("connected", connected)
+        repolish(self.status_badge)
+
+    def save_settings(self):
+        update_ai_settings(
+            provider=self.provider_combo.currentText(),
+            model=self.model_combo.currentText().strip(),
+            api_key=self.api_key_edit.text().strip(),
+        )
+        self.refresh_status()
+        self.main_window.refresh_ai_status()
+        QMessageBox.information(self, "AI settings saved", "AI provider settings have been saved.")
+
+    def db_path(self) -> Path:
+        return Path(self.main_window.task_manager.storage.db_path)
+
+    def ask_backup_pin(self, title: str) -> tuple[str, bool]:
+        from PyQt6.QtWidgets import QInputDialog
+
+        pin, ok = QInputDialog.getText(
+            self,
+            title,
+            "Optional backup PIN. Leave blank for no extra PIN layer:",
+            QLineEdit.EchoMode.Password,
+        )
+        return pin.strip(), ok
+
+    def export_backup(self):
+        from PyQt6.QtWidgets import QFileDialog
+
+        default_name = f"assistant-{datetime.now().strftime('%Y%m%d-%H%M')}{BACKUP_EXTENSION}"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Assistant Backup",
+            str(Path.home() / default_name),
+            f"Assistant Backup (*{BACKUP_EXTENSION})",
+        )
+        if not file_path:
+            return
+
+        pin, ok = self.ask_backup_pin("Protect Backup")
+        if not ok:
+            return
+
+        try:
+            preview = export_backup(Path(file_path), pin=pin, db_path=self.db_path())
+        except BackupError as exc:
+            QMessageBox.warning(self, "Export failed", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Export failed", f"Unable to export backup: {str(exc)}")
+            return
+
+        self.last_backup_label.setText(f"Last backup: {preview.created_at}")
+        QMessageBox.information(
+            self,
+            "Backup exported",
+            f"Backup exported successfully.\n\n{preview.summary()}",
+        )
+
+    def import_backup(self):
+        from PyQt6.QtWidgets import QFileDialog
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Assistant Backup",
+            str(Path.home()),
+            f"Assistant Backup (*{BACKUP_EXTENSION})",
+        )
+        if not file_path:
+            return
+
+        pin = ""
+        try:
+            preview = inspect_backup(Path(file_path))
+        except BackupError:
+            pin, ok = self.ask_backup_pin("Unlock Backup")
+            if not ok:
+                return
+            try:
+                preview = inspect_backup(Path(file_path), pin=pin)
+            except BackupError as exc:
+                QMessageBox.warning(self, "Import failed", str(exc))
+                return
+
+        choice = QMessageBox.question(
+            self,
+            "Replace current data?",
+            f"{preview.summary()}\n\nThis will replace all current data. Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            import_backup(Path(file_path), pin=pin, db_path=self.db_path())
+        except BackupError as exc:
+            QMessageBox.warning(self, "Import failed", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Import failed", f"Unable to import backup: {str(exc)}")
+            return
+
+        QMessageBox.information(
+            self,
+            "Backup imported",
+            "Backup imported successfully. Restart the app to reopen the database cleanly.",
+        )
+
+
 class NavigationBar(QFrame):
     """Persistent navigation sidebar with main application sections."""
-    
+
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
         self.setObjectName("navigationBar")
         self.setFixedWidth(180)
-        
+
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 16, 0, 16)
         layout.setSpacing(0)
         self.setLayout(layout)
-        
-        # App title
+
         title = QLabel("Assistant")
         title.setObjectName("navTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
-        
-        # Add spacing
+
         layout.addSpacing(24)
-        
-        # Navigation items with icons/labels
+
         self.nav_items = {
-            "home": self._create_nav_button("🏠 Home", "home"),
-            "tasks": self._create_nav_button("✓ Tasks", "tasks"),
-            "money": self._create_nav_button("💰 Money", "money"),
-            "ai": self._create_nav_button("✨ Assistant", "ai"),
+            "home": self._create_nav_button("Home", "home"),
+            "tasks": self._create_nav_button("Tasks", "tasks"),
+            "money": self._create_nav_button("Money", "money"),
+            "ai": self._create_nav_button("Assistant", "ai"),
+            "settings": self._create_nav_button("Settings", "settings"),
         }
-        
+
         for button in self.nav_items.values():
             layout.addWidget(button)
             layout.addSpacing(6)
-        
+
         layout.addStretch(1)
-        
-        # Set active home by default
+
+        self.ai_status_btn = QPushButton()
+        self.ai_status_btn.setObjectName("aiStatusButton")
+        self.ai_status_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.ai_status_btn.setCursor(Qt.CursorShape.ArrowCursor)
+        layout.addWidget(self.ai_status_btn)
+
+        layout.addSpacing(8)
         self._set_active("home")
-    
+        self.refresh_ai_status()
+
     def _create_nav_button(self, text: str, nav_id: str) -> QPushButton:
-        """Create a navigation button."""
         btn = QPushButton(text)
         btn.setObjectName("navButton")
         btn.setMinimumHeight(40)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(lambda: self._navigate(nav_id))
         return btn
-    
+
     def _navigate(self, nav_id: str):
-        """Handle navigation based on button click."""
         if nav_id == "home":
             self.main_window.show_home_page()
         elif nav_id == "tasks":
@@ -2128,49 +2379,49 @@ class NavigationBar(QFrame):
             self.main_window.show_money_page()
         elif nav_id == "ai":
             self.main_window.show_ai_chat_page()
-        
+        elif nav_id == "settings":
+            self.main_window.show_settings_page()
+
         self._set_active(nav_id)
-    
+
     def _set_active(self, nav_id: str):
-        """Set the active navigation item."""
         for item_id, btn in self.nav_items.items():
             btn.setProperty("active", item_id == nav_id)
             repolish(btn)
-    
+
     def set_active_page(self, page_type: str):
-        """Update active state based on current page."""
         self._set_active(page_type)
+
+    def refresh_ai_status(self):
+        connected = is_ai_connected()
+        self.ai_status_btn.setText(get_ai_status_text())
+        self.ai_status_btn.setProperty("connected", connected)
+        repolish(self.ai_status_btn)
 
 
 class MainWindow(QMainWindow):
     def __init__(self, db_key: str = ""):
         super().__init__()
         self.setWindowTitle("Assistant Pro")
-        
-        # Apply window configuration from theme
+
         window_config = get_window()
         self.resize(window_config.width, window_config.height)
         self.setMinimumSize(window_config.min_width, window_config.min_height)
-        
-        # Apply dynamic stylesheet from theme
         self.setStyleSheet(generate_stylesheet())
 
         self.task_manager = TaskManager(db_key=db_key)
         self.money_manager = MoneyManager(db_key=db_key)
 
-        # Create central widget with layout for sidebar + content
         central_widget = QWidget()
         central_layout = QHBoxLayout()
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
         central_widget.setLayout(central_layout)
         self.setCentralWidget(central_widget)
-        
-        # Create navigation sidebar
+
         self.nav_bar = NavigationBar(self)
         central_layout.addWidget(self.nav_bar)
-        
-        # Create stacked widget for pages
+
         self.stack = QStackedWidget()
         self.stack.setObjectName("pageStack")
         central_layout.addWidget(self.stack)
@@ -2181,15 +2432,17 @@ class MainWindow(QMainWindow):
         self.task_details_page = TaskDetailsPage(self, self.task_manager)
         self.money_page = MoneyPage(self, self.money_manager)
         self.ai_chat_page = AssistantChatPage(self, self.task_manager, self.money_manager)
+        self.settings_page = SettingsPage(self)
         self.task_form_return_page = self.home_page
         self.task_details_return_page = self.home_page
 
-        self.stack.addWidget(self.home_page)      # index 0
+        self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.tasks_page)
-        self.stack.addWidget(self.add_task_page)  # index 2
+        self.stack.addWidget(self.add_task_page)
         self.stack.addWidget(self.task_details_page)
         self.stack.addWidget(self.money_page)
         self.stack.addWidget(self.ai_chat_page)
+        self.stack.addWidget(self.settings_page)
 
         self.show_home_page()
 
@@ -2228,7 +2481,17 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.ai_chat_page)
         self.nav_bar.set_active_page("ai")
 
+    def show_settings_page(self):
+        self.settings_page.load_settings()
+        self.stack.setCurrentWidget(self.settings_page)
+        self.nav_bar.set_active_page("settings")
+
     def refresh_task_views(self):
         self.home_page.refresh_lists()
         self.home_page.refresh_suggestion()
         self.tasks_page.refresh_lists()
+
+    def refresh_ai_status(self):
+        self.nav_bar.refresh_ai_status()
+        if hasattr(self, "settings_page"):
+            self.settings_page.refresh_status()

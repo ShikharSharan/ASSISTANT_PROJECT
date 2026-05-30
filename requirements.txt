@@ -3,3 +3,4 @@ groq
 python-dotenv
 argon2-cffi
 sqlcipher3-binary
+cryptography

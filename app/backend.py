@@ -12,13 +12,10 @@ from .validation import (
     normalize_record_id,
     normalize_task_input,
 )
-# Avoid circular import issues by importing storage here, after defining TaskManager and MoneyManager
-from .sqlite_storage import SQLiteStorage
-
-storage = SQLiteStorage()
 
 
 logger = logging.getLogger(__name__)
+storage = None
 
 
 class TaskManager:
@@ -100,7 +97,7 @@ class MoneyManager:
 
     def update_entry(self, entry_id: int, entry_type: str, amount: float, note: str = "", person: str = "") -> None:
         normalized_entry_id = normalize_record_id(entry_id, "Money entry")
-        normalized_type, normalized_amount, normalized_note, normalized_person = normalize_money_entry_input(
+        normalized_type, normalized_amount, normalized_note, normalized_person, _normalized_category = normalize_money_entry_input(
             entry_type,
             amount,
             note,
@@ -155,8 +152,7 @@ class BudgetManager:
     """Manage monthly budget goals and spending summaries."""
 
     def __init__(self, storage=None) -> None:
-        from .sqlite_storage import SQLiteStorage
-        self.storage = storage if storage is not None else globals()['storage']
+        self.storage = storage if storage is not None else globals()["storage"] or SQLiteStorage()
 
     def set_goal(self, category: str, monthly_limit: float, year: int, month: int):
         from .validation import normalize_budget_input
@@ -176,4 +172,3 @@ class BudgetManager:
 
     def over_budget_categories(self, year: int, month: int):
         return [s for s in self.spending_report(year, month) if s.over_budget]
-
