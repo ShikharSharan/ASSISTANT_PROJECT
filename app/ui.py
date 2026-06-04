@@ -2251,7 +2251,12 @@ class SettingsPage(InfinityPage):
             return
 
         try:
-            preview = export_backup(Path(file_path), pin=pin, db_path=self.db_path())
+            preview = export_backup(
+                Path(file_path),
+                pin=pin,
+                db_path=self.db_path(),
+                db_key=self.main_window.db_key,
+            )
         except BackupError as exc:
             QMessageBox.warning(self, "Export failed", str(exc))
             return
@@ -2302,7 +2307,7 @@ class SettingsPage(InfinityPage):
             return
 
         try:
-            import_backup(Path(file_path), pin=pin, db_path=self.db_path())
+            self.main_window.import_backup_file(Path(file_path), pin=pin)
         except BackupError as exc:
             QMessageBox.warning(self, "Import failed", str(exc))
             return
@@ -2313,7 +2318,7 @@ class SettingsPage(InfinityPage):
         QMessageBox.information(
             self,
             "Backup imported",
-            "Backup imported successfully. Restart the app to reopen the database cleanly.",
+            "Backup imported successfully.",
         )
 
 
@@ -2403,6 +2408,7 @@ class MainWindow(QMainWindow):
     def __init__(self, db_key: str = ""):
         super().__init__()
         self.setWindowTitle("Assistant Pro")
+        self.db_key = db_key
 
         window_config = get_window()
         self.resize(window_config.width, window_config.height)
@@ -2495,3 +2501,42 @@ class MainWindow(QMainWindow):
         self.nav_bar.refresh_ai_status()
         if hasattr(self, "settings_page"):
             self.settings_page.refresh_status()
+
+    def _close_data_connections(self):
+        seen_connections = set()
+        for manager in (self.task_manager, self.money_manager):
+            conn = getattr(getattr(manager, "storage", None), "conn", None)
+            if conn is None or id(conn) in seen_connections:
+                continue
+            seen_connections.add(id(conn))
+            conn.close()
+
+    def _reopen_data_connections(self):
+        self.task_manager = TaskManager(db_key=self.db_key)
+        self.money_manager = MoneyManager(db_key=self.db_key)
+
+        self.home_page.task_manager = self.task_manager
+        self.home_page.money_manager = self.money_manager
+        self.tasks_page.task_manager = self.task_manager
+        self.add_task_page.task_manager = self.task_manager
+        self.task_details_page.task_manager = self.task_manager
+        self.money_page.money_manager = self.money_manager
+        self.ai_chat_page.task_manager = self.task_manager
+        self.ai_chat_page.money_manager = self.money_manager
+
+    def import_backup_file(self, path: Path, pin: str = ""):
+        target_db_path = Path(self.task_manager.storage.db_path)
+        self._close_data_connections()
+        try:
+            preview = import_backup(
+                path,
+                pin=pin,
+                db_path=target_db_path,
+                db_key=self.db_key,
+            )
+        finally:
+            self._reopen_data_connections()
+        self.refresh_task_views()
+        self.money_page.refresh_summary()
+        self.money_page.refresh_entries()
+        return preview

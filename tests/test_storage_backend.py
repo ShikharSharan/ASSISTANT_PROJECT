@@ -186,6 +186,7 @@ class SQLiteStorageTests(IsolatedDatabaseTestCase):
         self.assertEqual(owes_you, 1800)
 
     def test_money_entries_can_be_filtered_updated_and_deleted(self):
+        current_month = datetime.now()
         income_id = self.storage.insert_money_entry("Income", 50000, "Salary", "")
         expense_id = self.storage.insert_money_entry("Expense", 1200, "Groceries", "")
 
@@ -196,17 +197,28 @@ class SQLiteStorageTests(IsolatedDatabaseTestCase):
         )
         self.storage.conn.commit()
 
-        current_month_expenses = self.storage.get_money_entries(year=2026, month=4, entry_type="Expense")
+        current_month_expenses = self.storage.get_money_entries(
+            year=current_month.year,
+            month=current_month.month,
+            entry_type="Expense",
+        )
         self.assertEqual(len(current_month_expenses), 1)
         self.assertEqual(current_month_expenses[0].id, expense_id)
 
         self.storage.update_money_entry(expense_id, "Expense", 1500, "Groceries and fuel", "")
-        updated_expense = self.storage.get_money_entries(year=2026, month=4, entry_type="Expense")[0]
+        updated_expense = self.storage.get_money_entries(
+            year=current_month.year,
+            month=current_month.month,
+            entry_type="Expense",
+        )[0]
         self.assertEqual(updated_expense.amount, 1500)
         self.assertEqual(updated_expense.note, "Groceries and fuel")
 
         self.storage.delete_money_entry(expense_id)
-        self.assertEqual(self.storage.get_money_entries(year=2026, month=4), [])
+        self.assertEqual(
+            self.storage.get_money_entries(year=current_month.year, month=current_month.month),
+            [],
+        )
 
     def test_money_analysis_tables_store_ai_friendly_money_facts(self):
         entry_id = self.storage.insert_money_entry("Given", 1800, "Loan to Sam", "Sam")
