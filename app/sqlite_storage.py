@@ -253,10 +253,20 @@ class SQLiteStorage(StorageBase):
                         amount REAL NOT NULL CHECK (amount > 0),
                         date TEXT NOT NULL,
                         note TEXT NOT NULL DEFAULT '',
-                        person TEXT NOT NULL DEFAULT ''
+                        person TEXT NOT NULL DEFAULT '',
+                        category TEXT NOT NULL DEFAULT 'Uncategorised'
                     );
                     """
                 )
+                money_entry_columns = {
+                    row["name"]
+                    for row in cur.execute("PRAGMA table_info(money_entries)").fetchall()
+                }
+                if "category" not in money_entry_columns:
+                    cur.execute(
+                        "ALTER TABLE money_entries ADD COLUMN "
+                        "category TEXT NOT NULL DEFAULT 'Uncategorised'"
+                    )
                 cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS money_entry_kinds (
@@ -846,4 +856,3 @@ class SQLiteStorage(StorageBase):
             )
             for r in rows
         ]
-

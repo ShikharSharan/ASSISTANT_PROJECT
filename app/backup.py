@@ -4,7 +4,6 @@ import base64
 import json
 import os
 import shutil
-import sqlite3
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -16,6 +15,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from config import DB_PATH
+from .sqlite_storage import _SQLCIPHER_AVAILABLE, sqlite3
 
 APP_VERSION = "0.1.0"
 BACKUP_EXTENSION = ".assistantbackup"
@@ -54,6 +54,21 @@ def _derive_fernet_key(pin: str, salt: bytes) -> bytes:
     return base64.urlsafe_b64encode(kdf.derive(pin.encode("utf-8")))
 
 
+def _quote_sqlcipher_key(db_key: str) -> str:
+    return db_key.replace("'", "''")
+
+
+def _connect_database(db_path: Path, db_key: str = ""):
+    conn = sqlite3.connect(str(db_path))
+    if _SQLCIPHER_AVAILABLE and db_key:
+        conn.execute(f"PRAGMA key = \"x'{_quote_sqlcipher_key(db_key)}'\"")
+        conn.execute("PRAGMA cipher_page_size = 4096")
+        conn.execute("PRAGMA kdf_iter = 256000")
+        conn.execute("PRAGMA cipher_hmac_algorithm = HMAC_SHA512")
+        conn.execute("PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512")
+    return conn
+
+
 def _record_counts(db_path: Path) -> dict[str, int]:
     if not db_path.exists():
         return {"tasks": 0, "completed_tasks": 0, "money_entries": 0, "budget_goals": 0}
@@ -80,24 +95,31 @@ def _record_counts(db_path: Path) -> dict[str, int]:
         conn.close()
 
 
-def _make_snapshot_copy(source_db: Path, target_db: Path) -> None:
+def _make_snapshot_copy(
+    source_db: Path,
+    target_db: Path,
+    source_db_key: str = "",
+    target_db_key: str = "",
+) -> None:
     if not source_db.exists():
         raise BackupError("Database file does not exist yet.")
 
-    source = sqlite3.connect(str(source_db))
-    target = sqlite3.connect(str(target_db))
+    source = _connect_database(source_db, source_db_key)
+    target = _connect_database(target_db, target_db_key)
     try:
         source.backup(target)
+    except sqlite3.DatabaseError as exc:
+        raise BackupError("Unable to read the database for backup. Check that it is unlocked.") from exc
     finally:
         target.close()
         source.close()
 
 
-def _make_zip_bytes(db_path: Path) -> tuple[bytes, dict]:
+def _make_zip_bytes(db_path: Path, db_key: str = "") -> tuple[bytes, dict]:
     with tempfile.TemporaryDirectory() as temp_dir_name:
         temp_dir = Path(temp_dir_name)
         snapshot_db = temp_dir / "assistant.db"
-        _make_snapshot_copy(db_path, snapshot_db)
+        _make_snapshot_copy(db_path, snapshot_db, source_db_key=db_key)
 
         metadata = {
             "format": BACKUP_FORMAT,
@@ -143,12 +165,17 @@ def _decrypt_payload(path: Path, pin: str) -> bytes:
         raise BackupError("Unable to unlock this backup. Check the PIN and try again.") from exc
 
 
-def export_backup(destination: Path, pin: str = "", db_path: Path | None = None) -> BackupPreview:
+def export_backup(
+    destination: Path,
+    pin: str = "",
+    db_path: Path | None = None,
+    db_key: str = "",
+) -> BackupPreview:
     destination = Path(destination)
     if destination.suffix != BACKUP_EXTENSION:
         destination = destination.with_suffix(BACKUP_EXTENSION)
 
-    zip_bytes, metadata = _make_zip_bytes(Path(db_path or DB_PATH))
+    zip_bytes, metadata = _make_zip_bytes(Path(db_path or DB_PATH), db_key=db_key)
     payload = _encrypt_payload(zip_bytes, pin) if pin else zip_bytes
     destination.write_bytes(payload)
     return BackupPreview(
@@ -184,7 +211,12 @@ def inspect_backup(path: Path, pin: str = "") -> BackupPreview:
         raise BackupError("This file is not a valid Assistant backup.") from exc
 
 
-def import_backup(path: Path, pin: str = "", db_path: Path | None = None) -> BackupPreview:
+def import_backup(
+    path: Path,
+    pin: str = "",
+    db_path: Path | None = None,
+    db_key: str = "",
+) -> BackupPreview:
     target_db = Path(db_path or DB_PATH)
     zip_bytes = _decrypt_payload(Path(path), pin)
     preview = inspect_backup(path, pin)
@@ -197,10 +229,28 @@ def import_backup(path: Path, pin: str = "", db_path: Path | None = None) -> Bac
             archive.extract("assistant.db", temp_dir)
 
         replacement_db = temp_dir / "assistant.db"
+        restored_db = temp_dir / "assistant-restored.db"
+        if _SQLCIPHER_AVAILABLE and db_key:
+            _make_snapshot_copy(replacement_db, restored_db, target_db_key=db_key)
+        else:
+            restored_db = replacement_db
+
         target_db.parent.mkdir(parents=True, exist_ok=True)
         backup_current = target_db.with_suffix(".db.before-import")
         if target_db.exists():
             shutil.copy2(target_db, backup_current)
-        shutil.copy2(replacement_db, target_db)
+        for sidecar in (
+            target_db.with_name(f"{target_db.name}-wal"),
+            target_db.with_name(f"{target_db.name}-shm"),
+        ):
+            if sidecar.exists():
+                sidecar.unlink()
+        shutil.copy2(restored_db, target_db)
+        for sidecar in (
+            target_db.with_name(f"{target_db.name}-wal"),
+            target_db.with_name(f"{target_db.name}-shm"),
+        ):
+            if sidecar.exists():
+                sidecar.unlink()
 
     return preview
