@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QLineEdit, QComboBox, QFormLayout, QSpinBox, QDoubleSpinBox, QListView,
     QStackedWidget, QMessageBox, QFrame, QScrollArea
 )
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, QPropertyAnimation, QEasingCurve
 from .backend import TaskManager, MoneyManager
 from .ai import (
     get_ai_settings,
@@ -2359,16 +2359,29 @@ class NavigationBar(QFrame):
         super().__init__()
         self.main_window = main_window
         self.setObjectName("navigationBar")
-        self.setFixedWidth(180)
+        self.is_collapsed = False
+        self.expanded_width = 180
+        self.collapsed_width = 60
+        self.setFixedWidth(self.expanded_width)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 16, 0, 16)
         layout.setSpacing(0)
         self.setLayout(layout)
 
+        # Toggle button at the top
+        toggle_btn = QPushButton("☰")
+        toggle_btn.setObjectName("sidebarToggleButton")
+        toggle_btn.setFixedHeight(40)
+        toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        toggle_btn.clicked.connect(self.toggle_sidebar)
+        layout.addWidget(toggle_btn)
+        layout.addSpacing(12)
+
         title = QLabel("Assistant")
         title.setObjectName("navTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_widget = title
         layout.addWidget(title)
 
         layout.addSpacing(24)
@@ -2402,6 +2415,7 @@ class NavigationBar(QFrame):
         btn.setObjectName("navButton")
         btn.setMinimumHeight(40)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.full_text = text  # Store original full text
         btn.clicked.connect(lambda: self._navigate(nav_id))
         return btn
 
@@ -2432,6 +2446,31 @@ class NavigationBar(QFrame):
         self.ai_status_btn.setText(get_ai_status_text())
         self.ai_status_btn.setProperty("connected", connected)
         repolish(self.ai_status_btn)
+
+    def toggle_sidebar(self):
+        """Toggle sidebar between expanded and collapsed states."""
+        self.is_collapsed = not self.is_collapsed
+        target_width = self.collapsed_width if self.is_collapsed else self.expanded_width
+        
+        # Animate the width change
+        self.animation = QPropertyAnimation(self, b"minimumWidth")
+        self.animation.setDuration(300)
+        self.animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self.animation.setStartValue(self.width())
+        self.animation.setEndValue(target_width)
+        self.animation.start()
+        
+        # Update visibility of text elements
+        self.title_widget.setVisible(not self.is_collapsed)
+        for button in self.nav_items.values():
+            if self.is_collapsed:
+                # Show only first character
+                button.setText(button.full_text[0])
+                button.setToolTip(button.full_text)  # Show full text on hover
+            else:
+                # Restore full text
+                button.setText(button.full_text)
+                button.setToolTip("")
 
 
 class MainWindow(QMainWindow):

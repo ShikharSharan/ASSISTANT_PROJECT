@@ -283,6 +283,24 @@ QPushButton#aiStatusButton[connected="false"] {{
     background-color: #d64545;
     border: 1px solid #9f2f2f;
 }}
+QPushButton#sidebarToggleButton {{
+    background-color: transparent;
+    color: {c.text_primary};
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin: 0 8px;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+}}
+QPushButton#sidebarToggleButton:hover {{
+    background-color: rgba(255, 208, 138, 0.3);
+    color: {c.text_dark};
+}}
+QPushButton#sidebarToggleButton:pressed {{
+    background-color: rgba(255, 208, 138, 0.5);
+}}
 QStackedWidget {{
     background: transparent;
 }}
