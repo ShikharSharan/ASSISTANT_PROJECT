@@ -282,13 +282,35 @@ QDoubleSpinBox:focus {
     border: 2px solid #e68700;
 }
 QTextEdit#chatHistory {
-    background-color: rgba(255, 253, 249, 0.98);
-    border: 1px solid rgba(230, 161, 58, 0.38);
+    background-color: rgba(255, 253, 249, 0.92);
+    border: 1px solid rgba(230, 161, 58, 0.24);
     border-radius: 18px;
-    padding: 10px 12px;
+    padding: 14px;
+}
+QFrame#chatComposer {
+    background-color: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(230, 161, 58, 0.34);
+    border-radius: 18px;
 }
 QLineEdit#chatInput {
-    min-height: 38px;
+    min-height: 42px;
+    border: 0;
+    border-radius: 16px;
+    background-color: transparent;
+    padding: 8px 4px;
+}
+QLineEdit#chatInput:focus {
+    border: 0;
+}
+QPushButton#chatSendButton {
+    min-width: 78px;
+    border-radius: 14px;
+}
+QPushButton#chatClearButton {
+    min-width: 84px;
+    border: 0;
+    background-color: transparent;
+    color: #9b5b22;
 }
 QListWidget {
     outline: 0;
@@ -824,30 +846,32 @@ class AssistantChatPage(InfinityPage):
         self.chat_history = QTextEdit()
         self.chat_history.setObjectName("chatHistory")
         self.chat_history.setReadOnly(True)
-        self.chat_history.setMinimumHeight(300)
+        self.chat_history.setMinimumHeight(360)
         layout.addWidget(self.chat_history)
 
-        layout.addWidget(create_section_title("YOUR MESSAGE"))
+        composer = QFrame()
+        composer.setObjectName("chatComposer")
+        composer_layout = QHBoxLayout(composer)
+        composer_layout.setContentsMargins(14, 8, 10, 8)
+        composer_layout.setSpacing(8)
+
         self.prompt_edit = QLineEdit()
         self.prompt_edit.setObjectName("chatInput")
-        self.prompt_edit.setPlaceholderText("Ask what to focus on, how your money looks, or how to plan the day...")
+        self.prompt_edit.setPlaceholderText("Message AI Coach")
         self.prompt_edit.returnPressed.connect(self.send_message)
-        layout.addWidget(self.prompt_edit)
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        composer_layout.addWidget(self.prompt_edit, 1)
 
         self.send_btn = QPushButton("Send")
-        self.send_btn.setObjectName("primaryButton")
+        self.send_btn.setObjectName("chatSendButton")
         self.send_btn.clicked.connect(self.send_message)
-        btn_row.addWidget(self.send_btn)
+        composer_layout.addWidget(self.send_btn)
 
         self.clear_btn = QPushButton("Clear chat")
-        self.clear_btn.setObjectName("ghostButton")
+        self.clear_btn.setObjectName("chatClearButton")
         self.clear_btn.clicked.connect(self.reset_conversation)
-        btn_row.addWidget(self.clear_btn)
-        btn_row.addStretch(1)
-        layout.addLayout(btn_row)
+        composer_layout.addWidget(self.clear_btn)
+
+        layout.addWidget(composer)
         layout.addStretch(1)
 
         self.reset_conversation()
@@ -926,24 +950,30 @@ class AssistantChatPage(InfinityPage):
     def append_message(self, role: str, text: str):
         safe_text = escape(text).replace("\n", "<br>")
         if role == "You":
-            bubble_background = "#fff0d8"
-            border_color = "#e68700"
-            role_color = "#8a3600"
+            align = "right"
+            bubble_background = "#f08a12"
+            border_color = "#f08a12"
+            role_color = "#fff8ed"
+            text_color = "#fffdf8"
         else:
-            bubble_background = "rgba(255, 251, 244, 0.98)"
-            border_color = "#efc57f"
-            role_color = "#b45b00"
+            align = "left"
+            bubble_background = "#ffffff"
+            border_color = "#eed4ac"
+            role_color = "#9b5b22"
+            text_color = "#4f2200"
 
         message_html = (
-            f'<div style="margin:0 0 10px 0; padding:12px 14px; background:{bubble_background}; '
-            f'border:1px solid {border_color}; border-radius:16px;">'
-            f'<div style="font-size:11px; font-weight:700; color:{role_color}; letter-spacing:0.5px;">'
-            f"{escape(role.upper())}</div>"
-            f'<div style="margin-top:6px; color:#5a2800; font-size:13px; line-height:1.5;">{safe_text}</div>'
-            "</div>"
+            '<table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 10px 0;">'
+            f'<tr><td align="{align}">'
+            f'<div style="display:inline-block; max-width:72%; padding:11px 14px; '
+            f'background:{bubble_background}; border:1px solid {border_color}; border-radius:18px;">'
+            f'<div style="font-size:10px; font-weight:700; color:{role_color};">'
+            f"{escape(role)}</div>"
+            f'<div style="margin-top:5px; color:{text_color}; font-size:13px; line-height:1.45;">'
+            f"{safe_text}</div>"
+            "</div></td></tr></table>"
         )
         self.chat_history.insertHtml(message_html)
-        self.chat_history.insertHtml("<br>")
         scroll_bar = self.chat_history.verticalScrollBar()
         scroll_bar.setValue(scroll_bar.maximum())
 
