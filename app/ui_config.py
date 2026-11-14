@@ -271,17 +271,18 @@ QPushButton#aiStatusButton {{
     margin: 0 12px;
     padding: 8px 10px;
     min-height: 34px;
-    color: white;
     font-size: 12px;
     font-weight: 700;
 }}
 QPushButton#aiStatusButton[connected="true"] {{
-    background-color: #1f9d55;
-    border: 1px solid #15703c;
+    background-color: #dcfce7;
+    border: 1px solid #15803d;
+    color: #14532d;
 }}
 QPushButton#aiStatusButton[connected="false"] {{
-    background-color: #d64545;
-    border: 1px solid #9f2f2f;
+    background-color: #fee2e2;
+    border: 1px solid #b91c1c;
+    color: #7f1d1d;
 }}
 QPushButton#sidebarToggleButton {{
     background-color: transparent;

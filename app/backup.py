@@ -105,13 +105,28 @@ def _make_snapshot_copy(
         raise BackupError("Database file does not exist yet.")
 
     source = _connect_database(source_db, source_db_key)
-    target = _connect_database(target_db, target_db_key)
+    target = None
     try:
-        source.backup(target)
+        if _SQLCIPHER_AVAILABLE:
+            target_key = (
+                f" KEY \"x'{_quote_sqlcipher_key(target_db_key)}'\""
+                if target_db_key
+                else " KEY ''"
+            )
+            source.execute(
+                f"ATTACH DATABASE ? AS backup{target_key}",
+                (str(target_db),),
+            )
+            source.execute("SELECT sqlcipher_export('backup')")
+            source.execute("DETACH DATABASE backup")
+        else:
+            target = _connect_database(target_db, target_db_key)
+            source.backup(target)
     except sqlite3.DatabaseError as exc:
         raise BackupError("Unable to read the database for backup. Check that it is unlocked.") from exc
     finally:
-        target.close()
+        if target is not None:
+            target.close()
         source.close()
 
 
