@@ -8,13 +8,9 @@ Startup flow
 3. Hand the derived DB key to SQLiteStorage so the database is opened
    with the correct SQLCipher key.
 4. Launch MainWindow as normal.
-pyinstaller --onefile --windowed \
-  --name "shikhars planner assistant" \
-  --icon 26.png \
-  --exclude-module PyQt5 \
-  --exclude-module PySide2 \
-  --exclude-module PySide6 \
-  main.py
+
+Build a macOS app bundle with the project icon from an activated virtual environment:
+    python -m PyInstaller --noconfirm --clean --windowed --icon build_assets/ShikharPlanner.icns --name AssistantPro main.py
 """
 
 import sys

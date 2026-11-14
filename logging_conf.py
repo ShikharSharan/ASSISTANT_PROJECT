@@ -1,9 +1,13 @@
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+import sys
 
-LOG_DIR = Path(__file__).parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+if getattr(sys, "frozen", False) and sys.platform == "darwin":
+    LOG_DIR = Path.home() / "Library" / "Logs" / "AssistantApp"
+else:
+    LOG_DIR = Path(__file__).parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 LOG_FILE = LOG_DIR / "app.log"
 

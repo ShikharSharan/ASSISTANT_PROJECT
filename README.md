@@ -21,11 +21,16 @@ It currently includes:
 
 ## Setup
 
-Install dependencies:
+Use Python 3.10 or newer. On macOS, the system `python3` may be older; install a newer Python (for example, Python 3.12) and create the project environment with:
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3.12 -m venv --clear .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
+
+On macOS this installs the `sqlcipher3` wheel; Linux x86_64 uses `sqlcipher3-binary`.
 
 ### Optional: Groq AI Integration
 
@@ -53,7 +58,7 @@ See [CONFIGURATION.md](CONFIGURATION.md) for detailed UI configuration options a
 ## Run The App
 
 ```bash
-python3 main.py
+python main.py
 ```
 
 You can also install it as a package and use the GUI entry point:
@@ -257,3 +262,21 @@ Money analysis views:
 ## Packaging
 
 The package metadata is defined in `setup.py`, with a GUI entry point named `assistant-pro`.
+
+To build a standalone macOS executable, activate the project's virtual environment and run:
+
+```bash
+source .venv/bin/activate
+python -m pip install pyinstaller
+python -m PyInstaller --noconfirm --clean --onefile --name AssistantPro main.py
+```
+
+The executable is created at `dist/AssistantPro`.
+
+To build a macOS app bundle using `26.png` as its icon, run:
+
+```bash
+python -m PyInstaller --noconfirm --clean --windowed --icon build_assets/ShikharPlanner.icns --name AssistantPro main.py
+```
+
+The app bundle is created at `dist/AssistantPro.app`.

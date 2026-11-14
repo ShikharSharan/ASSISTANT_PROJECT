@@ -2,5 +2,6 @@ PyQt6
 groq
 python-dotenv
 argon2-cffi
-sqlcipher3-binary
+sqlcipher3; sys_platform == "darwin"
+sqlcipher3-binary; sys_platform == "linux" and platform_machine == "x86_64"
 cryptography
