@@ -25,7 +25,7 @@ except ImportError:
 
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from .errors import AssistantDataError, RecordNotFoundError, ValidationError
 from .storage_base import StorageBase
 from .models import Task, MoneyEntry
@@ -623,9 +623,9 @@ class SQLiteStorage(StorageBase):
         title: str,
         description: str,
         priority: str,
-        due_at: str | None = None,
+        due_at: Optional[str] = None,
         recurrence: str = "none",
-        recurrence_end: str | None = None,
+        recurrence_end: Optional[str] = None,
     ) -> int:
         normalized_title, normalized_description, normalized_priority, normalized_recurrence = normalize_task_input(
             title, description, priority, recurrence

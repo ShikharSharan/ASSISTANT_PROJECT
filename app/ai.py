@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 import statistics
-from groq import Groq
 
 from .backend import MoneyManager, TaskManager
 from .models import Task, MoneyEntry
@@ -40,7 +39,7 @@ def _priority_rank(priority: str) -> int:
     }.get(priority, 3)
 
 
-def _pick_focus_task(tasks: list[Task]) -> Task | None:
+def _pick_focus_task(tasks: List[Task]) -> Optional[Task]:
     if not tasks:
         return None
     return min(
@@ -66,7 +65,7 @@ def _format_month_label(moment: datetime) -> str:
     return moment.strftime("%B %Y")
 
 
-def _summarize_remaining_tasks(tasks: list[Task], excluded_task_id: int | None = None) -> str:
+def _summarize_remaining_tasks(tasks: List[Task], excluded_task_id: Optional[int] = None) -> str:
     remaining = [
         task.title
         for task in sorted(
@@ -115,7 +114,7 @@ def _analyze_task_patterns(task_manager: TaskManager) -> Dict[str, any]:
     }
 
 
-def _analyze_financial_health(money_manager: MoneyManager, reference_date: datetime | None = None) -> Dict[str, any]:
+def _analyze_financial_health(money_manager: MoneyManager, reference_date: Optional[datetime] = None) -> Dict[str, any]:
     """Analyze financial patterns and provide survival insights."""
     current_date = reference_date or datetime.now()
     
@@ -248,6 +247,8 @@ def _get_groq_response(prompt: str, context: str = "") -> str:
         return None  # Fallback to rule-based system
     
     try:
+        from groq import Groq
+
         client = Groq(api_key=settings.api_key)
         
         system_prompt = """You are a helpful AI assistant for a personal productivity and finance app. 
@@ -442,7 +443,7 @@ def get_rich_summary(
 
     return "\n".join(lines) if lines else "Nothing to summarise yet."
 
-def get_daily_suggestion(task_manager: TaskManager, money_manager: MoneyManager | None = None, reference_date: datetime | None = None) -> str:
+def get_daily_suggestion(task_manager: TaskManager, money_manager: Optional[MoneyManager] = None, reference_date: Optional[datetime] = None) -> str:
     pending = task_manager.list_pending_tasks()
     
     # Enhanced analysis
@@ -604,7 +605,7 @@ def get_chat_response(
     message: str,
     task_manager: TaskManager,
     money_manager: MoneyManager,
-    reference_date: datetime | None = None,
+    reference_date: Optional[datetime] = None,
 ) -> str:
     prompt = " ".join(message.strip().split())
     current_date = reference_date or datetime.now()

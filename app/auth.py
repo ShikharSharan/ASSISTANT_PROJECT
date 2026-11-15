@@ -21,6 +21,11 @@ import os
 from pathlib import Path
 from typing import Optional
 
+try:
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+except ImportError:  # pragma: no cover - depends on project requirements
+    Scrypt = None
+
 # ── Password hashing backend (Argon2id preferred, bcrypt fallback) ──────────
 try:
     from argon2 import PasswordHasher as _Argon2PasswordHasher
@@ -58,6 +63,14 @@ except ImportError:
         )
 
 
+def _derive_scrypt_key(password: str, salt: bytes, *, n: int = 16384, r: int = 8, p: int = 1, dklen: int = 32) -> bytes:
+    if hasattr(hashlib, "scrypt"):
+        return hashlib.scrypt(password.encode(), salt=salt, n=n, r=r, p=p, dklen=dklen)
+    if Scrypt is None:
+        raise RuntimeError("Neither hashlib.scrypt nor cryptography is available for key derivation.")
+    return Scrypt(salt=salt, length=dklen, n=n, r=r, p=p).derive(password.encode())
+
+
 def derive_db_key(password: str, salt_hex: str) -> str:
     """
     Derive a 32-byte hex key from the user's password + a stored salt.
@@ -65,7 +78,7 @@ def derive_db_key(password: str, salt_hex: str) -> str:
     The salt is stored in credentials.json; it is NOT secret by itself.
     """
     salt = bytes.fromhex(salt_hex)
-    key = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32)
+    key = _derive_scrypt_key(password, salt)
     return key.hex()
 
 

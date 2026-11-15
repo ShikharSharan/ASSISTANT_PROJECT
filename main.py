@@ -13,18 +13,26 @@ Build a macOS app bundle with the project icon from an activated virtual environ
     python -m PyInstaller --noconfirm --clean --windowed --icon build_assets/ShikharPlanner.icns --name AssistantPro main.py
 """
 
+import importlib
+import os
 import sys
-from PyQt6.QtWidgets import QApplication, QMessageBox
-from logging_conf import setup_logging
-from config import CREDENTIALS_FILE, SETUP_MARKER
-from app.auth import AuthManager
-from app.first_run_ui import SetupWizard, LoginDialog
-from app.ui import MainWindow
 
 # ver 2.0.0 — first-run setup + encrypted DB
 
 
 def main() -> None:
+    if sys.platform == "android" or "ANDROID_ARGUMENT" in os.environ:
+        mobile = importlib.import_module("android_app.mobile")
+        mobile.run()
+        return
+
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from logging_conf import setup_logging
+    from config import CREDENTIALS_FILE, SETUP_MARKER
+    from app.auth import AuthManager
+    from app.first_run_ui import SetupWizard, LoginDialog
+    from app.ui import MainWindow
+
     setup_logging()
     app = QApplication(sys.argv)
 

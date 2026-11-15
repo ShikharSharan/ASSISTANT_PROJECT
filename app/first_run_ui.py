@@ -6,6 +6,8 @@ PyQt6 dialogs shown on first launch (setup wizard) and every later launch (login
 
 from __future__ import annotations
 
+from typing import Optional
+
 from PyQt6.QtWidgets import (
     QDialog,
     QLabel,
@@ -26,7 +28,7 @@ class SetupWizard(QDialog):
     On accept, exposes .username and .password.
     """
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("Welcome — First Time Setup")
         self.setFixedWidth(420)
@@ -116,7 +118,7 @@ class LoginDialog(QDialog):
     On accept, exposes .password.
     """
 
-    def __init__(self, username: str, parent: QWidget | None = None):
+    def __init__(self, username: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setWindowTitle("Sign In")
         self.setFixedWidth(360)

@@ -280,3 +280,18 @@ python -m PyInstaller --noconfirm --clean --windowed --icon build_assets/Shikhar
 ```
 
 The app bundle is created at `dist/AssistantPro.app`.
+
+## Android
+
+The Android client is a Kivy-based mobile interface for tasks, money tracking, and offline AI guidance. It reuses the existing task and money managers and stores its database in Android's private app storage. This first version uses standard SQLite rather than SQLCipher and does not use the desktop password login; its data is separate from the desktop app.
+
+Build a debug APK with Buildozer:
+
+```bash
+python3 -m pip install buildozer
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+buildozer android debug
+```
+
+The APK is written to `bin/`.

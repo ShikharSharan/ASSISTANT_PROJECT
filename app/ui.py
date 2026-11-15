@@ -1,6 +1,7 @@
 from datetime import datetime
 from html import escape
 from pathlib import Path
+from typing import Optional
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -535,13 +536,13 @@ def format_task_preview(description: str) -> str:
     return f"{compact[:87]}..."
 
 
-def format_task_timestamp(moment: datetime | None) -> str:
+def format_task_timestamp(moment: Optional[datetime]) -> str:
     if moment is None:
         return "No saved time"
     return moment.strftime("%d %b, %I:%M %p")
 
 
-def month_start(moment: datetime | None = None) -> datetime:
+def month_start(moment: Optional[datetime] = None) -> datetime:
     source = moment or datetime.now()
     return datetime(source.year, source.month, 1)
 

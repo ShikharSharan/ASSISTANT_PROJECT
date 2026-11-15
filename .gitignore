@@ -6,6 +6,9 @@ __pycache__/
 .Python
 build/
 dist/
+.buildozer/
+bin/
+.gradle/
 *.egg-info/
 .eggs/
 

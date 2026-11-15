@@ -9,6 +9,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -183,7 +184,7 @@ def _decrypt_payload(path: Path, pin: str) -> bytes:
 def export_backup(
     destination: Path,
     pin: str = "",
-    db_path: Path | None = None,
+    db_path: Optional[Path] = None,
     db_key: str = "",
 ) -> BackupPreview:
     destination = Path(destination)
@@ -229,7 +230,7 @@ def inspect_backup(path: Path, pin: str = "") -> BackupPreview:
 def import_backup(
     path: Path,
     pin: str = "",
-    db_path: Path | None = None,
+    db_path: Optional[Path] = None,
     db_key: str = "",
 ) -> BackupPreview:
     target_db = Path(db_path or DB_PATH)

@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from .errors import ValidationError
 from .models import Task, MoneyEntry
 from .storage_base import StorageBase
@@ -19,7 +19,7 @@ storage = None
 
 
 class TaskManager:
-    def __init__(self, storage: StorageBase | None = None, db_key: str = "") -> None:
+    def __init__(self, storage: Optional[StorageBase] = None, db_key: str = "") -> None:
         self.storage: StorageBase = storage if storage is not None else SQLiteStorage(db_key=db_key)
 
     def list_pending_tasks(self) -> List[Task]:
@@ -74,7 +74,7 @@ class TaskManager:
 
 
 class MoneyManager:
-    def __init__(self, storage: StorageBase | None = None, db_key: str = "") -> None:
+    def __init__(self, storage: Optional[StorageBase] = None, db_key: str = "") -> None:
         self.storage: StorageBase = storage if storage is not None else SQLiteStorage(db_key=db_key)
 
     def add_entry(self, entry_type: str, amount: float, note: str = "", person: str = "", category: str = "Uncategorised") -> MoneyEntry:
@@ -119,9 +119,9 @@ class MoneyManager:
 
     def list_entries(
         self,
-        year: int | None = None,
-        month: int | None = None,
-        entry_type: str | None = None,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        entry_type: Optional[str] = None,
     ) -> List[MoneyEntry]:
         normalized_year, normalized_month = normalize_period(year=year, month=month)
         if entry_type is not None and entry_type not in MONEY_ENTRY_TYPES:
@@ -132,7 +132,7 @@ class MoneyManager:
             entry_type=entry_type,
         )
 
-    def compute_summary(self, year: int | None = None, month: int | None = None):
+    def compute_summary(self, year: Optional[int] = None, month: Optional[int] = None):
         normalized_year, normalized_month = normalize_period(year=year, month=month)
         salary, expenses, emi, credit, owes_you = self.storage.get_money_summary(
             year=normalized_year,

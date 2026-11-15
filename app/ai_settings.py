@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Optional
 
 from config import APP_DATA_DIR, GROQ_API_KEY
 
@@ -20,7 +21,7 @@ class AISettings:
     api_key: str = ""
 
 
-def _normalize_settings(data: dict | None = None) -> AISettings:
+def _normalize_settings(data: Optional[dict] = None) -> AISettings:
     data = data or {}
     provider = str(data.get("provider") or DEFAULT_PROVIDER).strip()
     if provider not in SUPPORTED_PROVIDERS:
