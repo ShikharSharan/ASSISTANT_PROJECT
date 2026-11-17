@@ -706,26 +706,57 @@ class SQLiteStorage(StorageBase):
             raise AssistantDataError("Unable to save data to the local database.") from exc
 
     # ---- money ----
-    def insert_money_entry(self, entry_type: str, amount: float, note: str, person: str, category: str = "") -> int:
+    def insert_money_entry(
+        self,
+        entry_type: str,
+        amount: float,
+        note: str,
+        person: str,
+        category: str = "",
+        entry_date: Optional[datetime] = None,
+    ) -> int:
         normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category, *_ = normalize_money_entry_input(
             entry_type, amount, note, person, category
         )
-        now_str = datetime.now().strftime(DATE_FORMAT)
+        date_str = (entry_date or datetime.now()).strftime(DATE_FORMAT)
         cur = self._execute_write(
             "INSERT INTO money_entries (entry_type,amount,date,note,person,category) VALUES (?,?,?,?,?,?)",
-            (normalized_type, normalized_amount, now_str, normalized_note, normalized_person, normalized_category),
+            (normalized_type, normalized_amount, date_str, normalized_note, normalized_person, normalized_category),
         )
         return cur.lastrowid
 
-    def update_money_entry(self, entry_id: int, entry_type: str, amount: float, note: str, person: str, category: str = "") -> None:
+    def update_money_entry(
+        self,
+        entry_id: int,
+        entry_type: str,
+        amount: float,
+        note: str,
+        person: str,
+        category: str = "",
+        entry_date: Optional[datetime] = None,
+    ) -> None:
         normalized_entry_id = normalize_record_id(entry_id, "Money entry")
         normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category, *_ = normalize_money_entry_input(
             entry_type, amount, note, person, category
         )
-        cur = self._execute_write(
-            "UPDATE money_entries SET entry_type=?,amount=?,note=?,person=?,category=? WHERE id=?",
-            (normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category, normalized_entry_id),
-        )
+        if entry_date is None:
+            cur = self._execute_write(
+                "UPDATE money_entries SET entry_type=?,amount=?,note=?,person=?,category=? WHERE id=?",
+                (normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category, normalized_entry_id),
+            )
+        else:
+            cur = self._execute_write(
+                "UPDATE money_entries SET entry_type=?,amount=?,note=?,person=?,category=?,date=? WHERE id=?",
+                (
+                    normalized_type,
+                    normalized_amount,
+                    normalized_note,
+                    normalized_person,
+                    normalized_category,
+                    entry_date.strftime(DATE_FORMAT),
+                    normalized_entry_id,
+                ),
+            )
         if cur.rowcount == 0 and not self._row_exists("money_entries", normalized_entry_id):
             raise RecordNotFoundError("Money entry not found.")
 
@@ -765,6 +796,7 @@ class SQLiteStorage(StorageBase):
             entries.append(MoneyEntry(
                 id=r["id"], entry_type=r["entry_type"], amount=r["amount"],
                 date=datetime.fromisoformat(r["date"]), note=r["note"] or "", person=r["person"] or "",
+                category=r["category"] or "Uncategorised",
             ))
         return entries
 

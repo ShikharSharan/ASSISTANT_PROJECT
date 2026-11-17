@@ -6,7 +6,7 @@ source.dir = .
 source.include_exts = py,kv,png,jpg,jpeg,atlas,ttf,otf
 source.exclude_dirs = .git,.venv,.buildozer,build,dist,logs,tests,build_assets,__pycache__,.vscode
 version = 0.1.0
-requirements = python3,kivy==2.3.1,python-dotenv,charset-normalizer==3.4.4
+requirements = python3,kivy==2.3.1,python-dotenv,charset-normalizer==3.4.4,cryptography
 p4a.branch = develop
 orientation = portrait
 fullscreen = 0

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import List, Tuple, Optional
 from .models import Task, MoneyEntry, BudgetGoal, SpendingSummary
 
@@ -19,12 +20,14 @@ class StorageBase(ABC):
     # ── Money entries ──────────────────────────────────────────────────────
     @abstractmethod
     def insert_money_entry(self, entry_type: str, amount: float, note: str,
-                           person: str, category: str = "Uncategorised") -> int: ...
+                           person: str, category: str = "Uncategorised",
+                           entry_date: Optional[datetime] = None) -> int: ...
 
     @abstractmethod
     def update_money_entry(self, entry_id: int, entry_type: str, amount: float,
                            note: str, person: str,
-                           category: str = "Uncategorised") -> None: ...
+                           category: str = "Uncategorised",
+                           entry_date: Optional[datetime] = None) -> None: ...
 
     @abstractmethod
     def delete_money_entry(self, entry_id: int) -> None: ...

@@ -404,6 +404,32 @@ class ManagerTests(IsolatedDatabaseTestCase):
             },
         )
 
+    def test_money_manager_update_preserves_entry_category(self):
+        manager = MoneyManager()
+        entry = manager.add_entry("Expense", 25, "Lunch", category="Food & Dining")
+
+        manager.update_entry(entry.id, "Expense", 30, "Team lunch", category="Food & Dining")
+
+        updated_entry = manager.list_entries()[0]
+        self.assertEqual(updated_entry.note, "Team lunch")
+        self.assertEqual(updated_entry.category, "Food & Dining")
+
+    def test_money_manager_saves_historical_entry_date(self):
+        manager = MoneyManager(storage=self.storage)
+        historical_date = datetime(2026, 3, 15, 9, 30)
+
+        entry = manager.add_entry(
+            "Expense",
+            1200,
+            "Groceries",
+            entry_date=historical_date,
+        )
+
+        march_entries = manager.list_entries(year=2026, month=3)
+        self.assertEqual(entry.date, historical_date)
+        self.assertEqual([saved.id for saved in march_entries], [entry.id])
+        self.assertEqual(march_entries[0].date, historical_date)
+
     def test_money_manager_requires_complete_period_filters(self):
         manager = MoneyManager()
 

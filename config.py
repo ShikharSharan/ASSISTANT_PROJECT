@@ -3,8 +3,10 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Load environment variables from .env file (only used for API keys in dev)
-load_dotenv()
+# Load environment variables from .env file (only used for API keys in dev).
+# Android's bundled app has no source-file stack for dotenv to inspect.
+if sys.platform != "android" and "ANDROID_ARGUMENT" not in os.environ:
+    load_dotenv()
 
 # ── Source / Repo root (never store data here) ─────────────────────────────
 BASE_DIR = Path(__file__).parent

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QDate
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from app.ui import MainWindow
@@ -132,6 +133,20 @@ class TaskUiTests(IsolatedDatabaseTestCase):
         self.assertEqual(self.window.money_page.month_label.text(), "March 2026")
         self.assertEqual(self.window.money_page.stat_values["expenses"].text(), "₹1,800")
         self.assertEqual(self.window.money_page.stat_values["net_balance"].text(), "-₹1,800")
+
+    def test_money_page_adds_entry_to_selected_historical_month(self):
+        self.window.money_page.entry_date_edit.setDate(QDate(2026, 3, 15))
+        self.window.money_page.type_combo.setCurrentText("Expense")
+        self.window.money_page.amount_spin.setValue(1200)
+        self.window.money_page.note_edit.setText("Historical groceries")
+
+        self.window.money_page.save_entry_btn.click()
+        self.app.processEvents()
+
+        self.assertEqual(self.window.money_page.selected_month, datetime(2026, 3, 1))
+        march_entries = self.window.money_manager.list_entries(year=2026, month=3)
+        self.assertEqual(len(march_entries), 1)
+        self.assertEqual(march_entries[0].date, datetime(2026, 3, 15))
 
     def test_money_page_filter_buttons_reduce_visible_entries(self):
         self.window.money_manager.add_entry("Income", 45000, "Salary", "")

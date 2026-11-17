@@ -6,10 +6,10 @@ from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QListWidget, QListWidgetItem,
-    QTextEdit, QLineEdit, QComboBox, QFormLayout, QSpinBox, QDoubleSpinBox, QListView,
+    QTextEdit, QLineEdit, QComboBox, QFormLayout, QSpinBox, QDoubleSpinBox, QDateEdit, QListView,
     QStackedWidget, QMessageBox, QFrame, QScrollArea
 )
-from PyQt6.QtCore import QSize, Qt, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import QSize, Qt, QDate, QPropertyAnimation, QEasingCurve
 from .backend import TaskManager, MoneyManager
 from .ai import (
     get_ai_settings,
@@ -1819,6 +1819,11 @@ class MoneyPage(InfinityPage):
         self.person_edit = QLineEdit()
         self.person_edit.setPlaceholderText("Optional")
 
+        self.entry_date_edit = QDateEdit()
+        self.entry_date_edit.setCalendarPopup(True)
+        self.entry_date_edit.setDisplayFormat("dd MMM yyyy")
+        self.entry_date_edit.setDate(QDate.currentDate())
+
         form_grid = QGridLayout()
         form_grid.setHorizontalSpacing(18)
         form_grid.setVerticalSpacing(12)
@@ -1826,6 +1831,7 @@ class MoneyPage(InfinityPage):
         form_grid.addLayout(create_field_stack("Amount", self.amount_spin), 0, 1)
         form_grid.addLayout(create_field_stack("Note", self.note_edit), 1, 0)
         form_grid.addLayout(create_field_stack("Person", self.person_edit), 1, 1)
+        form_grid.addLayout(create_field_stack("Date", self.entry_date_edit), 2, 0)
         form_grid.setColumnStretch(0, 1)
         form_grid.setColumnStretch(1, 1)
 
@@ -1941,6 +1947,10 @@ class MoneyPage(InfinityPage):
         amount = float(self.amount_spin.value())
         note = self.note_edit.text().strip()
         person = self.person_edit.text().strip()
+        entry_date = datetime.combine(
+            self.entry_date_edit.date().toPyDate(),
+            datetime.min.time(),
+        )
         if amount <= 0:
             QMessageBox.information(
                 self,
@@ -1951,17 +1961,30 @@ class MoneyPage(InfinityPage):
 
         try:
             if self.editing_entry_id is None:
-                self.money_manager.add_entry(entry_type, amount, note, person)
-                if self.selected_month != month_start():
-                    self.selected_month = month_start()
-                    self.refresh_month_header()
+                self.money_manager.add_entry(
+                    entry_type,
+                    amount,
+                    note,
+                    person,
+                    entry_date=entry_date,
+                )
             else:
-                self.money_manager.update_entry(self.editing_entry_id, entry_type, amount, note, person)
+                self.money_manager.update_entry(
+                    self.editing_entry_id,
+                    entry_type,
+                    amount,
+                    note,
+                    person,
+                    entry_date=entry_date,
+                )
         except AssistantDataError as exc:
             QMessageBox.warning(self, "Unable to save entry", str(exc))
             self.refresh_entries()
             return
 
+        if self.selected_month != month_start(entry_date):
+            self.selected_month = month_start(entry_date)
+            self.refresh_month_header()
         self.reset_form()
         self.refresh_summary()
         self.refresh_entries()
@@ -1975,6 +1998,7 @@ class MoneyPage(InfinityPage):
         self.amount_spin.setValue(entry.amount)
         self.note_edit.setText(entry.note)
         self.person_edit.setText(entry.person)
+        self.entry_date_edit.setDate(QDate(entry.date.year, entry.date.month, entry.date.day))
 
     def reset_form(self):
         self.editing_entry_id = None
@@ -1986,6 +2010,13 @@ class MoneyPage(InfinityPage):
         self.amount_spin.setValue(0)
         self.note_edit.clear()
         self.person_edit.clear()
+        now = datetime.now()
+        default_date = (
+            now
+            if (self.selected_month.year, self.selected_month.month) == (now.year, now.month)
+            else self.selected_month
+        )
+        self.entry_date_edit.setDate(QDate(default_date.year, default_date.month, default_date.day))
 
     def set_empty_state_action(self, text: str, handler):
         self.empty_state_action_btn.setText(text)

@@ -77,31 +77,59 @@ class MoneyManager:
     def __init__(self, storage: Optional[StorageBase] = None, db_key: str = "") -> None:
         self.storage: StorageBase = storage if storage is not None else SQLiteStorage(db_key=db_key)
 
-    def add_entry(self, entry_type: str, amount: float, note: str = "", person: str = "", category: str = "Uncategorised") -> MoneyEntry:
+    def add_entry(
+        self,
+        entry_type: str,
+        amount: float,
+        note: str = "",
+        person: str = "",
+        category: str = "Uncategorised",
+        entry_date: Optional[datetime] = None,
+    ) -> MoneyEntry:
         normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category = normalize_money_entry_input(
             entry_type, amount, note, person, category
         )
+        normalized_date = entry_date or datetime.now()
+        if not isinstance(normalized_date, datetime):
+            raise ValidationError("Money entry date must be a datetime.")
         entry_id = self.storage.insert_money_entry(
-            normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category
+            normalized_type,
+            normalized_amount,
+            normalized_note,
+            normalized_person,
+            normalized_category,
+            normalized_date,
         )
         logger.info("Added money entry %s", entry_id)
         return MoneyEntry(
             id=entry_id,
             entry_type=normalized_type,
             amount=normalized_amount,
-            date=datetime.now(),
+            date=normalized_date,
             note=normalized_note,
             person=normalized_person,
             category=normalized_category,
         )
 
-    def update_entry(self, entry_id: int, entry_type: str, amount: float, note: str = "", person: str = "") -> None:
+    def update_entry(
+        self,
+        entry_id: int,
+        entry_type: str,
+        amount: float,
+        note: str = "",
+        person: str = "",
+        category: str = "Uncategorised",
+        entry_date: Optional[datetime] = None,
+    ) -> None:
         normalized_entry_id = normalize_record_id(entry_id, "Money entry")
-        normalized_type, normalized_amount, normalized_note, normalized_person, _normalized_category = normalize_money_entry_input(
+        if entry_date is not None and not isinstance(entry_date, datetime):
+            raise ValidationError("Money entry date must be a datetime.")
+        normalized_type, normalized_amount, normalized_note, normalized_person, normalized_category = normalize_money_entry_input(
             entry_type,
             amount,
             note,
             person,
+            category,
         )
         self.storage.update_money_entry(
             normalized_entry_id,
@@ -109,6 +137,8 @@ class MoneyManager:
             normalized_amount,
             normalized_note,
             normalized_person,
+            normalized_category,
+            entry_date,
         )
         logger.info("Updated money entry %s", normalized_entry_id)
 
